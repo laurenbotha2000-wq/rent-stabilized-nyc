@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Rent Stabilized NYC</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <span class="logo" aria-hidden="true"></span>
+      <h1>Rent Stabilized NYC</h1>
+    </div>
+    <div class="status" id="status" role="status">Connecting…</div>
+    <div class="top-actions">
+      <button id="sync" class="btn">Sync now</button>
+      <button id="open-settings" class="btn ghost" aria-label="Settings">Settings</button>
+    </div>
+  </header>
+
+  <form class="filters" id="filters" autocomplete="off">
+    <label class="field grow">
+      <span>Neighborhoods</span>
+      <input id="hood-input" list="hoods" placeholder="Type to add, e.g. Bushwick">
+      <datalist id="hoods"></datalist>
+      <div class="chips" id="hood-chips"></div>
+    </label>
+    <fieldset class="field">
+      <legend>Bedrooms</legend>
+      <div class="seg" id="beds">
+        <button type="button" data-v="" class="on">Any</button>
+        <button type="button" data-v="0">Studio</button>
+        <button type="button" data-v="1">1</button>
+        <button type="button" data-v="2">2</button>
+        <button type="button" data-v="3">3</button>
+        <button type="button" data-v="4">4</button>
+      </div>
+    </fieldset>
+    <label class="field small"><span>Min $</span><input id="min" type="number" min="0" step="50" inputmode="numeric"></label>
+    <label class="field small"><span>Max $</span><input id="max" type="number" min="0" step="50" inputmode="numeric"></label>
+    <label class="field">
+      <span>Why it's flagged</span>
+      <select id="reason">
+        <option value="">Any reason</option>
+        <option value="IN_CITY_PDFS">Building on city list</option>
+        <option value="UNEVEN_PRICE">Uneven price</option>
+        <option value="RENT_STABILIZED_TEXT_IN_LISTING">Says so in description</option>
+      </select>
+    </label>
+    <div class="field toggles">
+      <label><input type="checkbox" id="delisted"> Include delisted</label>
+      <label><input type="checkbox" id="unflagged"> Include unflagged</label>
+    </div>
+  </form>
+
+  <main>
+    <div class="summary" id="summary"></div>
+    <div class="grid" id="grid" aria-live="polite"></div>
+    <nav class="pager" id="pager" hidden>
+      <button id="prev" class="btn ghost">Previous</button>
+      <span id="page-label"></span>
+      <button id="next" class="btn ghost">Next</button>
+    </nav>
+  </main>
+
+  <dialog id="detail" class="sheet">
+    <form method="dialog"><button class="close" aria-label="Close">×</button></form>
+    <div id="detail-body"></div>
+  </dialog>
+
+  <dialog id="settings" class="sheet narrow">
+    <form method="dialog" id="settings-form">
+      <h2>Data source</h2>
+      <label class="radio"><input type="radio" name="mode" value="local"> Built-in (runs inside this app)</label>
+      <label class="radio"><input type="radio" name="mode" value="remote"> My deployed server</label>
+      <div id="remote-fields">
+        <label class="field"><span>Server URL</span><input id="remote-url" placeholder="https://listings.example.com"></label>
+        <label class="field"><span>API key</span><input id="remote-key" type="password" placeholder="optional"></label>
+      </div>
+      <p class="hint" id="settings-msg"></p>
+      <div class="row">
+        <button type="button" id="test" class="btn ghost">Test connection</button>
+        <button value="save" class="btn">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <template id="card-tpl">
+    <article class="card" tabindex="0">
+      <div class="card-head">
+        <span class="price"></span>
+        <span class="layout"></span>
+      </div>
+      <div class="hood"></div>
+      <div class="addr"></div>
+      <div class="badges"></div>
+      <div class="meta"></div>
+    </article>
+  </template>
+
+  <script src="app.js"></script>
+</body>
+</html>

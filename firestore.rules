@@ -1,0 +1,54 @@
+rules_version = '2';
+
+// Everything not matched below is denied.
+//   listings/{chunk}, meta/status   read: signed-in users; write: only the sync job
+//                                   (it uses the Admin SDK, which bypasses rules)
+//   users/{uid}/searches/{id}       only that user, validated shape and size
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Signed in, and email verified when they used email + password
+    // (Google and Apple accounts are already verified).
+    function member() {
+      return request.auth != null
+        && (request.auth.token.firebase.sign_in_provider != 'password'
+            || request.auth.token.email_verified == true);
+    }
+
+    function isOwner(uid) {
+      return member() && request.auth.uid == uid;
+    }
+
+    function validSearch(d) {
+      let f = d.filters;
+      return d.keys().hasOnly(['name', 'filters', 'created_at'])
+        && d.name is string && d.name.size() > 0 && d.name.size() <= 80
+        && d.created_at is timestamp
+        && f is map
+        && f.keys().hasOnly(['hoods', 'beds', 'min', 'max', 'reason', 'delisted', 'unflagged'])
+        && (!('hoods' in f) || (f.hoods is list && f.hoods.size() <= 50))
+        && (!('beds' in f) || f.beds is string && f.beds.size() <= 2)
+        && (!('min' in f) || f.min is number)
+        && (!('max' in f) || f.max is number)
+        && (!('reason' in f) || f.reason is string && f.reason.size() <= 40)
+        && (!('delisted' in f) || f.delisted is bool)
+        && (!('unflagged' in f) || f.unflagged is bool);
+    }
+
+    match /listings/{chunk} {
+      allow read: if member();
+    }
+
+    match /meta/{doc} {
+      allow read: if member();
+    }
+
+    match /users/{uid}/searches/{searchId} {
+      allow read, delete: if isOwner(uid);
+      allow create: if isOwner(uid) && validSearch(request.resource.data)
+        && request.resource.data.created_at == request.time;
+      allow update: if isOwner(uid) && validSearch(request.resource.data)
+        && request.resource.data.created_at == resource.data.created_at;
+    }
+  }
+}

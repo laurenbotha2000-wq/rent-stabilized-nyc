@@ -1,0 +1,89 @@
+# Every 5 minutes (GitHub's minimum): sync Reasier, geocode new addresses,
+# and publish changes to Firestore. Needs a public repo for unlimited minutes.
+# Secrets: FIREBASE_SERVICE_ACCOUNT (JSON key).
+name: sync
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: sync
+  cancel-in-progress: false
+
+permissions:
+  contents: write   # monthly keepalive commit (GitHub pauses idle schedules after 60 days)
+  actions: write    # prune old database caches
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      # The server binary is rebuilt only when its source changes.
+      - id: bin
+        uses: actions/cache@v4
+        with:
+          path: bin/reasier-server
+          key: bin-${{ runner.os }}-${{ hashFiles('server-rs/**', 'Cargo.lock', 'ui/**') }}
+      - if: steps.bin.outputs.cache-hit != 'true'
+        uses: dtolnay/rust-toolchain@stable
+      - if: steps.bin.outputs.cache-hit != 'true'
+        uses: Swatinem/rust-cache@v2
+      - if: steps.bin.outputs.cache-hit != 'true'
+        env:
+          CARGO_PROFILE_RELEASE_LTO: thin
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
+        run: |
+          cargo build --release --locked -p reasier-server
+          mkdir -p bin && cp target/release/reasier-server bin/
+
+      # History database carried between runs (latest cache wins).
+      - uses: actions/cache/restore@v4
+        with:
+          path: state/reasier.db
+          key: db-${{ github.run_id }}
+          restore-keys: db-
+
+      - name: Sync and export
+        env:
+          DB_PATH: state/reasier.db
+          RGB_PATH: data/rgb_buildings.json
+        run: |
+          mkdir -p state out
+          bin/reasier-server export out
+
+      - uses: actions/cache/save@v4
+        if: always() && hashFiles('state/reasier.db') != ''
+        with:
+          path: state/reasier.db
+          key: db-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Publish to Firestore
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          npm install --prefix scripts --no-audit --no-fund --silent
+          node scripts/upload.mjs out/data.json
+
+      - name: Prune old database caches
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh cache list --key db- --sort created_at --order desc --limit 100 --json id --jq '.[5:][].id' \
+            | xargs -r -n1 gh cache delete || true
+
+      - name: Keepalive
+        run: |
+          last=$(git log -1 --format=%ct)
+          if [ $(( $(date +%s) - last )) -gt $(( 50 * 86400 )) ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            date -u +%FT%TZ > .github/keepalive
+            git add .github/keepalive && git commit -m "keepalive" && git push
+          fi

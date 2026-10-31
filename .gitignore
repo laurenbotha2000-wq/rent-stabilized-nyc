@@ -1,0 +1,14 @@
+target/
+*.db
+*.db-shm
+*.db-wal
+__pycache__/
+scripts/node_modules/
+desktop/gen/
+listings.json
+data/reasier_snapshot.json
+data/rgb/*.pdf
+.fly-api-key
+*-service-account*.json
+.firebase/
+.DS_Store

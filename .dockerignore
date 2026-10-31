@@ -1,0 +1,12 @@
+target
+**/target
+*.db
+*.db-shm
+*.db-wal
+data/rgb
+data/reasier_snapshot.json
+listings.json
+__pycache__
+desktop/gen
+desktop/icons
+

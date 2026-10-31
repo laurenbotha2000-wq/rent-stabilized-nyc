@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Rent Stabilized NYC</title>
+  <meta name="description" content="Map of NYC apartments likely to be rent stabilized.">
+  <meta name="theme-color" content="#0f766e">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icons/icon-192.png">
+  <link rel="apple-touch-icon" href="/icons/icon-192.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <!-- Signed out -->
+  <section id="login" class="screen center" hidden>
+    <div class="auth-card">
+      <div class="brand big"><span class="logo" aria-hidden="true"></span><h1>Rent Stabilized NYC</h1></div>
+      <p class="muted">Sign in to see the map of apartments that are likely rent stabilized.</p>
+      <button id="google" class="btn wide provider">Continue with Google</button>
+      <button id="apple" class="btn wide provider dark" hidden>Continue with Apple</button>
+      <div class="or"><span>or</span></div>
+      <form id="email-form" class="stack" novalidate>
+        <label class="field"><span>Email</span><input id="email" type="email" autocomplete="email" required></label>
+        <label class="field" id="password-field"><span>Password</span>
+          <input id="password" type="password" autocomplete="current-password" minlength="8" required></label>
+        <button id="email-submit" class="btn wide">Sign in</button>
+      </form>
+      <p class="auth-links">
+        <button type="button" class="link" id="to-signup">Create an account</button>
+        <button type="button" class="link" id="to-reset">Forgot password?</button>
+      </p>
+      <p class="msg" id="auth-msg" role="alert"></p>
+    </div>
+  </section>
+
+  <!-- Signed in with email but not verified yet -->
+  <section id="verify" class="screen center" hidden>
+    <div class="auth-card">
+      <h2>Check your email</h2>
+      <p class="muted">We sent a verification link to <strong id="verify-email"></strong>. Open it, then come back here.</p>
+      <button id="verified" class="btn wide">I've verified my email</button>
+      <button id="resend" class="btn wide ghost">Resend the link</button>
+      <button class="btn wide ghost sign-out">Sign out</button>
+      <p class="msg" id="verify-msg" role="alert"></p>
+    </div>
+  </section>
+
+  <!-- The app -->
+  <section id="app" class="screen" hidden>
+    <header class="top">
+      <div class="brand"><span class="logo" aria-hidden="true"></span><h1>Rent Stabilized NYC</h1></div>
+      <div class="status" id="status" role="status"></div>
+      <div class="account">
+        <span class="who" id="who"></span>
+        <button class="btn ghost small sign-out">Sign out</button>
+      </div>
+    </header>
+
+    <form class="filters" id="filters" autocomplete="off">
+      <label class="field grow">
+        <span>Neighborhoods</span>
+        <input id="hood-input" list="hoods" placeholder="Type to add, e.g. Bushwick">
+        <datalist id="hoods"></datalist>
+        <div class="chips" id="hood-chips"></div>
+      </label>
+      <fieldset class="field">
+        <legend>Bedrooms</legend>
+        <div class="seg" id="beds">
+          <button type="button" data-v="" class="on">Any</button>
+          <button type="button" data-v="0">Studio</button>
+          <button type="button" data-v="1">1</button>
+          <button type="button" data-v="2">2</button>
+          <button type="button" data-v="3">3</button>
+          <button type="button" data-v="4">4+</button>
+        </div>
+      </fieldset>
+      <label class="field small"><span>Min $</span><input id="min" type="number" min="0" step="50" inputmode="numeric"></label>
+      <label class="field small"><span>Max $</span><input id="max" type="number" min="0" step="50" inputmode="numeric"></label>
+      <label class="field">
+        <span>Why it's flagged</span>
+        <select id="reason">
+          <option value="">Any reason</option>
+          <option value="IN_CITY_PDFS">Building on city list</option>
+          <option value="UNEVEN_PRICE">Uneven price</option>
+          <option value="RENT_STABILIZED_TEXT_IN_LISTING">Says so in listing</option>
+        </select>
+      </label>
+      <div class="field toggles">
+        <label><input type="checkbox" id="delisted"> Include delisted</label>
+        <label><input type="checkbox" id="unflagged"> Include unflagged</label>
+      </div>
+      <div class="field saved">
+        <span>Saved searches</span>
+        <div class="row">
+          <select id="saved"><option value="">—</option></select>
+          <button type="button" id="save-search" class="btn ghost small">Save</button>
+          <button type="button" id="delete-search" class="btn ghost small" hidden aria-label="Delete saved search">Delete</button>
+        </div>
+      </div>
+    </form>
+
+    <div class="view-tabs" role="tablist">
+      <button role="tab" data-view="map" class="on">Map</button>
+      <button role="tab" data-view="list">List</button>
+      <button type="button" id="toggle-filters" aria-expanded="false">Filters</button>
+    </div>
+
+    <main class="split" id="split" data-view="map">
+      <div class="map-wrap">
+        <div id="map" aria-label="Map of listings"></div>
+        <div class="legend">
+          <span><i class="dot likely"></i>City-list building + uneven price</span>
+          <span><i class="dot building"></i>City-list building</span>
+          <span><i class="dot text"></i>Says so in listing</span>
+          <span><i class="dot none"></i>Not flagged</span>
+        </div>
+      </div>
+      <div class="list-wrap">
+        <div class="summary" id="summary"></div>
+        <div class="list" id="list"></div>
+        <button class="btn ghost wide" id="more" hidden>Show more</button>
+      </div>
+    </main>
+  </section>
+
+  <section id="loading" class="screen center"><p class="muted">Loading…</p></section>
+
+  <dialog id="detail" class="sheet">
+    <form method="dialog"><button class="close" aria-label="Close">×</button></form>
+    <div id="detail-body"></div>
+  </dialog>
+
+  <dialog id="save-dialog" class="sheet narrow">
+    <form method="dialog" id="save-form">
+      <h2>Save this search</h2>
+      <label class="field"><span>Name</span><input id="save-name" maxlength="80" required placeholder="e.g. Bushwick 1BR under $3k"></label>
+      <p class="msg" id="save-msg"></p>
+      <div class="row end">
+        <button type="button" id="save-cancel" class="btn ghost">Cancel</button>
+        <button value="save" class="btn">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <template id="card-tpl">
+    <article class="card" tabindex="0">
+      <div class="card-head"><span class="price"></span><span class="layout"></span></div>
+      <div class="hood"></div>
+      <div class="addr"></div>
+      <div class="badges"></div>
+      <div class="meta"></div>
+    </article>
+  </template>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

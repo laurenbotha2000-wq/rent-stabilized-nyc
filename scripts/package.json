@@ -1,0 +1,9 @@
+{
+  "name": "rent-stabilized-sync",
+  "private": true,
+  "type": "module",
+  "description": "Publishes data.json from `reasier-server export` to Firestore",
+  "dependencies": {
+    "firebase-admin": "^12.7.0"
+  }
+}
