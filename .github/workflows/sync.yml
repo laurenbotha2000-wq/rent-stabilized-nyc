@@ -1,5 +1,6 @@
 # Every 5 minutes (GitHub's minimum): sync Reasier, geocode new addresses,
-# and publish changes to Firestore. Needs a public repo for unlimited minutes.
+# and publish changes plus change events (new, price_change, delisted,
+# relisted) to Firestore. Needs a public repo for unlimited minutes.
 # Secrets: FIREBASE_SERVICE_ACCOUNT (JSON key).
 name: sync
 on:
@@ -40,12 +41,28 @@ jobs:
           cargo build --release --locked -p reasier-server
           mkdir -p bin && cp target/release/reasier-server bin/
 
-      # History database carried between runs (latest cache wins).
-      - uses: actions/cache/restore@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install --prefix scripts --no-audit --no-fund --silent
+
+      # Working database carried between runs (latest cache wins). Firestore
+      # holds the durable copy: if the cache is gone, rebuild from it.
+      - id: db
+        uses: actions/cache/restore@v4
         with:
           path: state/reasier.db
           key: db-${{ github.run_id }}
           restore-keys: db-
+      - name: Rebuild database from Firestore
+        if: steps.db.outputs.cache-matched-key == ''
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          DB_PATH: state/reasier.db
+        run: |
+          mkdir -p state out
+          node scripts/restore.mjs out/published.json
+          bin/reasier-server import out/published.json
 
       - name: Sync and export
         env:
@@ -61,15 +78,10 @@ jobs:
           path: state/reasier.db
           key: db-${{ github.run_id }}-${{ github.run_attempt }}
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-      - name: Publish to Firestore
+      - name: Publish changes and events to Firestore
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
-        run: |
-          npm install --prefix scripts --no-audit --no-fund --silent
-          node scripts/upload.mjs out/data.json
+        run: node scripts/upload.mjs out/data.json
 
       - name: Prune old database caches
         env:

@@ -37,6 +37,8 @@ const ADDED_COLUMNS: &[(&str, &str)] = &[
     ("lng", "REAL"),
     ("geo_bbl", "TEXT"),
     ("geocoded_at", "TEXT"),
+    // amenity flags restored by import(), used when the description isn't available
+    ("features", "TEXT"),
 ];
 
 pub fn open(path: &Path) -> Result<Connection> {
@@ -199,6 +201,51 @@ pub fn sync(con: &mut Connection, listings: &[Listing], index: &BuildingIndex, n
     Ok(SyncStats { active: listings.len(), new, price_changed: changed, delisted })
 }
 
+/// Rebuild a database from published listings (the `data.json` shape, as kept
+/// in Firestore), so the history survives if the working database is lost.
+/// Existing rows are left alone. Returns how many listings were added.
+pub fn import(con: &mut Connection, listings: &[Map<String, Value>], fallback_seen: &str) -> Result<usize> {
+    let tx = con.transaction()?;
+    let mut added = 0;
+    {
+        let mut ins = tx.prepare_cached(
+            "INSERT OR IGNORE INTO listings (url, price, beds, baths, sqft, neighborhood, address,
+               likes, time_on_market, income_restricted, reasons, description, status,
+               first_seen, last_seen, delisted_at, reasier_reasons, bbl, lat, lng, geo_bbl, geocoded_at, features)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,NULL,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22)",
+        )?;
+        let mut snap = tx.prepare_cached("INSERT OR IGNORE INTO snapshots VALUES (?,?,?,?,?)")?;
+        for l in listings {
+            let get = |k: &str| l.get(k);
+            let list = |k: &str| get(k).filter(|v| v.is_array()).map_or("[]".to_string(), Value::to_string);
+            let first_seen = get("first_seen").and_then(Value::as_str).unwrap_or(fallback_seen);
+            let located = get("lat").is_some_and(|v| !v.is_null());
+            added += ins.execute(params![
+                sql(get("url")), sql(get("price")), sql(get("beds")), sql(get("baths")), sql(get("sqft")),
+                sql(get("neighborhood")), sql(get("address")), sql(get("likes")), sql(get("time_on_market")),
+                get("income_restricted").and_then(Value::as_bool).unwrap_or(false) as i64,
+                list("reasons"),
+                get("status").and_then(Value::as_str).unwrap_or("ACTIVE"),
+                first_seen,
+                get("last_seen").and_then(Value::as_str).unwrap_or(fallback_seen),
+                sql(get("delisted_at")),
+                list("reasier_reasons"),
+                sql(get("bbl")), sql(get("lat")), sql(get("lng")), sql(get("geo_bbl")),
+                if located { Some(fallback_seen) } else { None },
+                list("features"),
+            ])?;
+            for s in get("data").and_then(Value::as_array).into_iter().flatten() {
+                snap.execute(params![
+                    sql(get("url")), sql(s.get("scraped_at")), sql(s.get("price")),
+                    sql(s.get("likes")), sql(s.get("time_on_market"))
+                ])?;
+            }
+        }
+    }
+    tx.commit()?;
+    Ok(added)
+}
+
 /// A listing ready to serve: the fields the filters need, plus its JSON
 /// (pre-serialized once per sync so requests only concatenate bytes).
 pub struct Row {
@@ -264,6 +311,13 @@ pub fn load_state(con: &Connection) -> Result<State> {
         let reasons = parse_list(&m["reasons"]);
         m["reasons"] = reasons.clone();
         m["reasier_reasons"] = parse_list(&m["reasier_reasons"]);
+        let description = m.get("description").and_then(Value::as_str).unwrap_or_default();
+        let features = if description.is_empty() {
+            parse_list(m.get("features").unwrap_or(&Value::Null)) // restored from the published copy
+        } else {
+            Value::from(crate::features::detect(description))
+        };
+        m.insert("features".into(), features);
         m["income_restricted"] = Value::Bool(match &m["income_restricted"] {
             Value::Number(n) => n.as_f64() != Some(0.0),
             Value::Null => false,

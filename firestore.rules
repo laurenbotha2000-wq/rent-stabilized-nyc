@@ -1,9 +1,11 @@
 rules_version = '2';
 
 // Everything not matched below is denied.
-//   listings/{chunk}, meta/status   read: signed-in users; write: only the sync job
+//   listings/{chunk}, meta/status,
+//   events/{id}                     read: signed-in users; write: only the sync job
 //                                   (it uses the Admin SDK, which bypasses rules)
 //   users/{uid}/searches/{id}       only that user, validated shape and size
+//   users/{uid}/prefs/main          only that user, validated shape and size
 service cloud.firestore {
   match /databases/{database}/documents {
 
@@ -25,14 +27,41 @@ service cloud.firestore {
         && d.name is string && d.name.size() > 0 && d.name.size() <= 80
         && d.created_at is timestamp
         && f is map
-        && f.keys().hasOnly(['hoods', 'beds', 'min', 'max', 'reason', 'delisted', 'unflagged'])
+        && f.keys().hasOnly(['hoods', 'beds', 'min', 'max', 'reason', 'features', 'delisted', 'unflagged'])
         && (!('hoods' in f) || (f.hoods is list && f.hoods.size() <= 50))
-        && (!('beds' in f) || f.beds is string && f.beds.size() <= 2)
+        && (!('beds' in f) || (f.beds is list && f.beds.size() <= 6))
         && (!('min' in f) || f.min is number)
         && (!('max' in f) || f.max is number)
-        && (!('reason' in f) || f.reason is string && f.reason.size() <= 40)
+        && (!('reason' in f) || (f.reason is list && f.reason.size() <= 3))
+        && (!('features' in f) || (f.features is list && f.features.size() <= 12))
         && (!('delisted' in f) || f.delisted is bool)
         && (!('unflagged' in f) || f.unflagged is bool);
+    }
+
+    function stringList(v, maxLen) {
+      return v is list && v.size() <= maxLen;
+    }
+
+    function validPrefs(d) {
+      return d.keys().hasOnly(['maxPrice', 'beds', 'hoods', 'near', 'must', 'nice', 'confidence', 'updated_at'])
+        && d.updated_at == request.time
+        && (!('maxPrice' in d) || d.maxPrice is number && d.maxPrice >= 0 && d.maxPrice <= 100000)
+        && (!('beds' in d) || stringList(d.beds, 6))
+        && (!('hoods' in d) || stringList(d.hoods, 50))
+        && (!('must' in d) || stringList(d.must, 12))
+        && (!('nice' in d) || stringList(d.nice, 12))
+        && (!('confidence' in d) || d.confidence in ['likely', 'any'])
+        && (!('near' in d) || (d.near is map
+            && d.near.keys().hasOnly(['label', 'lat', 'lng', 'minutes'])
+            && d.near.label is string && d.near.label.size() <= 120
+            && d.near.lat is number && d.near.lng is number
+            && d.near.minutes is number && d.near.minutes >= 5 && d.near.minutes <= 120));
+    }
+
+    // One private preferences document per person: users/{uid}/prefs/main
+    match /users/{uid}/prefs/{doc} {
+      allow read, delete: if isOwner(uid) && doc == 'main';
+      allow create, update: if isOwner(uid) && doc == 'main' && validPrefs(request.resource.data);
     }
 
     match /listings/{chunk} {
@@ -40,6 +69,11 @@ service cloud.firestore {
     }
 
     match /meta/{doc} {
+      allow read: if member();
+    }
+
+    // Change log written by the sync job: new, price_change, delisted, relisted
+    match /events/{id} {
       allow read: if member();
     }
 

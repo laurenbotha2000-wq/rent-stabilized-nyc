@@ -1,10 +1,9 @@
 # Deploy the website and Firestore security rules whenever they change.
 # Secrets: FIREBASE_SERVICE_ACCOUNT. Variables: FIREBASE_PROJECT_ID.
 name: deploy
+# Manual for now (Actions → deploy → Run workflow). Switch to `push` once the
+# service account has the Firebase Hosting Admin and Firebase Rules Admin roles.
 on:
-  push:
-    branches: [main]
-    paths: ["web/**", "firestore.rules", "firebase.json", ".github/workflows/deploy.yml"]
   workflow_dispatch:
 
 concurrency:

@@ -2,6 +2,8 @@
 // map + list with filters, and per-user saved searches.
 import { CONFIG } from "./config.js";
 import { createMap } from "./map.js";
+import { FEATURES, geocode, hasPrefs, match, placeName } from "./prefs.js";
+import { commute, describe, directionsUrl, loadStations, nearest } from "./commute.js";
 
 const SDK = "https://www.gstatic.com/firebasejs/11.0.2";
 const $ = (id) => document.getElementById(id);
@@ -23,6 +25,14 @@ const DEV = Boolean(CONFIG.devData) && ["localhost", "127.0.0.1"].includes(locat
 const state = {
   listings: [], filtered: [], shown: PAGE, hoods: [], beds: "",
   user: null, searches: [], map: null, fb: null, unsub: [],
+  prefs: null, sortTouched: false, events: [],
+};
+
+// localStorage can throw (storage blocked, some embedded browsers); treat it as optional
+const store = {
+  get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch { /* not persisted */ } },
+  remove(k) { try { localStorage.removeItem(k); } catch { /* not persisted */ } },
 };
 
 // ---- screens --------------------------------------------------------------
@@ -69,13 +79,24 @@ function openExternal(url) {
 
 // ---- filtering ------------------------------------------------------------
 
+const pressed = (id) => [...$(id).querySelectorAll('[aria-pressed="true"]')].map((b) => b.dataset.v).filter(Boolean);
+function setPressed(id, values) {
+  for (const b of $(id).querySelectorAll("button")) {
+    const on = b.dataset.v ? values.includes(b.dataset.v) : !values.length; // the "Any" button
+    b.setAttribute("aria-pressed", String(on));
+    b.classList.toggle("on", on);
+  }
+}
+const asList = (v) => (v === undefined || v === "" ? [] : Array.isArray(v) ? v : [v]); // older saves held one value
+
 function currentFilters() {
   const f = {};
   if (state.hoods.length) f.hoods = [...state.hoods];
-  if (state.beds !== "") f.beds = state.beds;
+  const beds = pressed("beds"); if (beds.length) f.beds = beds;
   if ($("min").value) f.min = Number($("min").value);
   if ($("max").value) f.max = Number($("max").value);
-  if ($("reason").value) f.reason = $("reason").value;
+  const reasons = pressed("reasons"); if (reasons.length) f.reason = reasons;
+  const features = pressed("feat-filter"); if (features.length) f.features = features;
   if ($("delisted").checked) f.delisted = true;
   if ($("unflagged").checked) f.unflagged = true;
   return f;
@@ -83,11 +104,11 @@ function currentFilters() {
 
 function applyFilters(f) {
   state.hoods = f.hoods ? [...f.hoods] : [];
-  state.beds = f.beds ?? "";
-  for (const b of $("beds").children) b.classList.toggle("on", b.dataset.v === state.beds);
+  setPressed("beds", asList(f.beds));
+  setPressed("reasons", asList(f.reason));
+  setPressed("feat-filter", asList(f.features));
   $("min").value = f.min ?? "";
   $("max").value = f.max ?? "";
-  $("reason").value = f.reason ?? "";
   $("delisted").checked = !!f.delisted;
   $("unflagged").checked = !!f.unflagged;
   renderChips();
@@ -98,19 +119,34 @@ function matches(l, f) {
   if (!f.delisted && l.status !== "ACTIVE") return false;
   if (!f.unflagged && !l.reasons.length) return false;
   if (f.hoods && !f.hoods.includes(l.neighborhood)) return false;
-  if (f.beds !== undefined) {
-    const b = Number(f.beds);
-    if (l.beds == null || (b === 4 ? l.beds < 4 : l.beds !== b)) return false;
-  }
+  // bedrooms and reasons: any of the picked values; amenities: all of them
+  if (f.beds && !(l.beds != null && f.beds.some((b) => (Number(b) === 4 ? l.beds >= 4 : l.beds === Number(b))))) return false;
   if (f.min !== undefined && !(l.price >= f.min)) return false;
   if (f.max !== undefined && !(l.price <= f.max)) return false;
-  if (f.reason && !l.reasons.includes(f.reason)) return false;
+  if (f.reason && !f.reason.some((r) => l.reasons.includes(r))) return false;
+  if (f.features && !f.features.every((x) => (l.features || []).includes(x))) return false;
   return true;
 }
 
+const SORTS = {
+  match: (a, b) => (b._m?.score ?? 0) - (a._m?.score ?? 0) || (b.first_seen || "").localeCompare(a.first_seen || ""),
+  newest: (a, b) => (b.first_seen || "").localeCompare(a.first_seen || ""),
+  "price-asc": (a, b) => (a.price ?? Infinity) - (b.price ?? Infinity),
+  "price-desc": (a, b) => (b.price ?? -Infinity) - (a.price ?? -Infinity),
+};
+
 function refresh({ fit = false } = {}) {
   const f = currentFilters();
-  state.filtered = state.listings.filter((l) => matches(l, f));
+  const personal = hasPrefs(state.prefs);
+  $("matches-only-wrap").hidden = !personal;
+  state.filtered = state.listings.filter((l) => {
+    if (!matches(l, f)) return false;
+    l._m = personal ? match(l, state.prefs) : null;
+    return !(personal && $("matches-only").checked && !l._m.ok);
+  });
+  let sort = $("sort").value;
+  if (sort === "match" && !personal) sort = "newest";
+  state.filtered.sort(SORTS[sort]);
   state.shown = PAGE;
   state.map?.setListings(state.filtered);
   if (fit) state.map?.fit(state.filtered);
@@ -140,7 +176,17 @@ function renderList() {
     card.querySelector(".hood").textContent = l.neighborhood || "";
     card.querySelector(".addr").textContent = l.address || "";
     card.querySelector(".badges").replaceWith(badges(l.reasons));
+    if (l._m) {
+      const m = card.querySelector(".match");
+      m.hidden = false;
+      const s = m.querySelector(".match-score");
+      s.textContent = `${l._m.score}% match`;
+      s.classList.toggle("low", l._m.score < 60);
+      m.querySelector(".match-why").textContent = l._m.why.join(" · ");
+    }
     const meta = [l.status === "DELISTED" ? `Delisted ${day(l.delisted_at)}` : `Listed ${day(l.first_seen)}`];
+    const st = stationFor(l);
+    if (st) meta.push(`${st.walk} min walk to ${st.name} (${st.routes.join(" ")})`);
     if (l.status === "DELISTED") card.classList.add("gone");
     card.querySelector(".meta").textContent = meta.join(" · ");
     card.addEventListener("click", () => openDetail(l.url, true));
@@ -157,22 +203,41 @@ function openDetail(url, focusMap = false) {
   const open = el("button", { className: "btn", textContent: "View listing on StreetEasy" });
   open.addEventListener("click", () => openExternal(l.url));
   const hist = el("table", { className: "hist" });
-  hist.createTHead().append(el("tr", {}, ...["Date", "Price", "Days listed"].map((t) => el("th", { textContent: t }))));
+  hist.createTHead().append(el("tr", {}, ...["Since", "Price", "Change"].map((t) => el("th", { textContent: t }))));
   const tb = hist.createTBody();
-  for (const s of l.data || []) {
+  // snapshots are newest first; keep only the points where the price changed
+  const points = [...(l.data || [])].reverse().filter((s, i, a) => i === 0 || s.price !== a[i - 1].price).reverse();
+  points.forEach((s, i) => {
+    const older = points[i + 1];
+    const delta = older && s.price != null && older.price != null ? s.price - older.price : null;
     tb.append(el("tr", {},
-      el("td", { textContent: new Date(s.scraped_at).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" }) }),
+      el("td", { textContent: new Date(s.scraped_at).toLocaleDateString("en-US", { dateStyle: "medium" }) }),
       el("td", { textContent: money(s.price) }),
-      el("td", { textContent: s.time_on_market ?? "—" })));
-  }
+      el("td", { textContent: delta == null ? "first seen" : `${delta < 0 ? "−" : "+"}${money(Math.abs(delta))}` })));
+  });
   const compare = sameSet(l.reasons, l.reasier_reasons || [])
     ? ""
     : `Reasier flags it as: ${(l.reasier_reasons || []).map((r) => LABELS[r] || r).join(", ") || "not stabilized"}.`;
+  const feats = (l.features || []).map((f) => FEATURES[f]).filter(Boolean);
+  const m = hasPrefs(state.prefs) ? match(l, state.prefs) : null;
+  const st = stationFor(l);
+  const transit = [];
+  if (st) transit.push(el("p", { className: "feature-list", textContent: `Nearest subway: ${st.name} (${st.routes.join(" ")}), ${st.walk} min walk` }));
+  const near = state.prefs?.near;
+  if (near && l.lat != null) {
+    const c = commute(l, near);
+    const dir = el("button", { type: "button", className: "link", textContent: "Exact directions" });
+    dir.addEventListener("click", () => openExternal(directionsUrl(l, near)));
+    transit.push(el("p", { className: "feature-list" }, `Commute to ${placeName(near)}: ${describe(c)} (estimate) · `, dir));
+  }
   $("detail-body").replaceChildren(
     el("div", { className: "detail-head" },
       el("h2", { textContent: `${money(l.price)} · ${l.neighborhood || ""}` }), open),
     el("div", { className: "addr", textContent: [l.address, layout(l)].filter(Boolean).join(" · ") }),
     badges(l.reasons),
+    ...(m ? [el("p", { className: "compare", textContent: `${m.score}% match: ${m.why.join(" · ")}` })] : []),
+    ...transit,
+    el("p", { className: "feature-list", textContent: feats.length ? `Mentioned in the listing: ${feats.join(", ")}` : "No amenities mentioned in the listing text." }),
     el("p", { className: "compare", textContent: compare }),
     el("h3", { textContent: "Price history", style: "font-size:14px;margin:14px 0 6px" }),
     hist,
@@ -190,6 +255,13 @@ function renderChips() {
   }));
 }
 
+const stationCache = new Map();
+function stationFor(l) {
+  if (l.lat == null) return null;
+  if (!stationCache.has(l.url)) stationCache.set(l.url, nearest(l));
+  return stationCache.get(l.url);
+}
+
 function setData(listings, meta) {
   state.listings = listings
     .map((l) => ({ ...l, reasons: l.reasons || [] }))
@@ -199,6 +271,7 @@ function setData(listings, meta) {
   state.meta = meta;
   renderStatus();
   refresh();
+  if (state.pendingAnnounce?.length) announce(); // changes whose listings just arrived
 }
 
 function renderStatus() {
@@ -218,7 +291,8 @@ function syncSavedSelect() {
 }
 const normalize = (f) => {
   const o = {};
-  for (const k of ["hoods", "beds", "min", "max", "reason", "delisted", "unflagged"]) if (f?.[k] !== undefined) o[k] = f[k];
+  for (const k of ["hoods", "beds", "min", "max", "reason", "features", "delisted", "unflagged"]) if (f?.[k] !== undefined) o[k] = f[k];
+  for (const k of ["beds", "reason"]) if (o[k] !== undefined) o[k] = asList(o[k]); // older saves held one value
   return o;
 };
 
@@ -226,6 +300,210 @@ function renderSaved() {
   $("saved").replaceChildren(el("option", { value: "", textContent: state.searches.length ? "Choose…" : "None yet" }),
     ...state.searches.map((s) => el("option", { value: s.id, textContent: s.name })));
   syncSavedSelect();
+}
+
+// ---- what's new (events) ----------------------------------------------------
+
+const EVENT_LABELS = { new: "New", price_drop: "Price drop", price_up: "Price up", delisted: "Delisted", relisted: "Back" };
+const eventKind = (e) => (e.type === "price_change" ? (e.price < e.old_price ? "price_drop" : "price_up") : e.type);
+const seenKey = () => `events-seen-${state.user?.uid || "dev"}`;
+
+function eventText(e) {
+  const place = [e.address?.split(",")[0], e.neighborhood].filter(Boolean).join(", ");
+  if (e.type === "price_change") return `${place}: ${money(e.old_price)} → ${money(e.price)}`;
+  return `${place} · ${money(e.price)}${e.beds != null ? ` · ${e.beds === 0 ? "studio" : `${e.beds} bd`}` : ""}`;
+}
+
+function matchesMine(e) {
+  if (!hasPrefs(state.prefs)) return false;
+  const l = state.listings.find((x) => x.url === e.url);
+  return !!l && match(l, state.prefs).ok;
+}
+
+function renderFeed() {
+  const seen = Number(store.get(seenKey()) || 0);
+  const unseen = state.events.filter((e) => e.atMs > seen && e.type !== "delisted").length;
+  $("feed-count").hidden = !unseen;
+  $("feed-count").textContent = unseen > 99 ? "99+" : String(unseen);
+  if (!state.events.length) {
+    $("feed").replaceChildren(el("p", { className: "empty", textContent: "No changes yet. New listings and price changes will show up here." }));
+    return;
+  }
+  $("feed").replaceChildren(...state.events.map((e) => {
+    const kind = eventKind(e);
+    const item = el("button", { type: "button", className: "feed-item" },
+      el("span", { className: `kind ${kind}`, textContent: EVENT_LABELS[kind] || e.type }),
+      el("span", { className: "what", textContent: eventText(e) }),
+      el("span", { className: "when", textContent: ago(new Date(e.atMs).toISOString()) }));
+    if (matchesMine(e)) item.append(el("span", { className: "yours", textContent: "Matches your preferences" }));
+    item.addEventListener("click", () => { $("feed-dialog").close(); openDetail(e.url, true); });
+    return item;
+  }));
+}
+
+function toast(text) {
+  $("toast-text").textContent = text;
+  $("toast").hidden = false;
+  clearTimeout(toast.t);
+  toast.t = setTimeout(() => { $("toast").hidden = true; }, 12000);
+}
+
+function listenEvents() {
+  const { fs, db } = state.fb;
+  const q = fs.query(fs.collection(db, "events"), fs.orderBy("at", "desc"), fs.limit(40));
+  let first = true;
+  state.unsub.push(fs.onSnapshot(q, (snap) => {
+    const fresh = first ? [] : snap.docChanges().filter((c) => c.type === "added").map((c) => c.doc.data());
+    state.events = snap.docs.map((d) => ({ ...d.data(), atMs: d.data().at?.toMillis?.() ?? Date.now() }));
+    renderFeed();
+    if (fresh.length) {
+      // events and listings arrive separately; wait for the listings that
+      // contain these changes so "matches your preferences" is accurate
+      state.pendingAnnounce = [...(state.pendingAnnounce || []), ...fresh];
+      clearTimeout(state.announceTimer);
+      if (fresh.every((e) => e.type === "delisted" || state.listings.some((l) => l.url === e.url))) announce();
+      else state.announceTimer = setTimeout(announce, 15000);
+    }
+    first = false;
+  }, () => { /* events are optional; listings still work */ }));
+}
+
+function announce() {
+  const fresh = state.pendingAnnounce || [];
+  state.pendingAnnounce = [];
+  clearTimeout(state.announceTimer);
+  if (!fresh.length) return;
+  renderFeed();
+  const n = (t) => fresh.filter((e) => eventKind(e) === t).length;
+  const parts = [[n("new"), "new listing"], [n("price_drop"), "price drop"], [n("relisted"), "back on the market"]]
+    .filter(([c]) => c).map(([c, w]) => `${c} ${w}${c > 1 && !w.startsWith("back") ? "s" : ""}`);
+  const mine = fresh.filter(matchesMine).length;
+  if (parts.length) toast(`${parts.join(", ")}${mine ? ` (${mine} match your preferences)` : ""}`);
+}
+
+function wireFeed() {
+  $("open-feed").addEventListener("click", () => {
+    renderFeed();
+    $("feed-dialog").showModal();
+    if (state.events[0]) store.set(seenKey(), String(state.events[0].atMs));
+    $("feed-count").hidden = true;
+  });
+  $("toast-view").addEventListener("click", () => { $("toast").hidden = true; $("open-feed").click(); });
+  $("toast-close").addEventListener("click", () => { $("toast").hidden = true; });
+}
+
+// ---- preferences ------------------------------------------------------------
+
+function setPrefs(p) {
+  state.prefs = p && hasPrefs(p) ? p : null;
+  if (state.prefs && !state.sortTouched) $("sort").value = "match";
+  if (!state.prefs && $("sort").value === "match") $("sort").value = "newest";
+  $("open-prefs").textContent = state.prefs ? "My preferences ✓" : "My preferences";
+  refresh();
+}
+
+function listenPrefs() {
+  if (DEV) {
+    try { setPrefs(JSON.parse(store.get("prefs") || "null")); } catch { setPrefs(null); }
+    return;
+  }
+  const { fs, db } = state.fb;
+  state.unsub.push(fs.onSnapshot(fs.doc(db, "users", state.user.uid, "prefs", "main"),
+    (snap) => setPrefs(snap.exists() ? snap.data() : null)));
+}
+
+async function savePrefs(p) {
+  if (DEV) { store.set("prefs", JSON.stringify(p)); setPrefs(p); return; }
+  const { fs, db } = state.fb;
+  await fs.setDoc(fs.doc(db, "users", state.user.uid, "prefs", "main"), { ...p, updated_at: fs.serverTimestamp() });
+}
+
+async function clearPrefs() {
+  if (DEV) { store.remove("prefs"); setPrefs(null); return; }
+  const { fs, db } = state.fb;
+  await fs.deleteDoc(fs.doc(db, "users", state.user.uid, "prefs", "main"));
+}
+
+function wirePrefs() {
+  const draft = { hoods: [], near: null };
+  const checks = (box, prefix) => box.replaceChildren(...Object.entries(FEATURES).map(([k, label]) =>
+    el("label", {}, el("input", { type: "checkbox", value: k, id: `${prefix}-${k}` }), ` ${label}`)));
+  checks($("p-must"), "must");
+  checks($("p-nice"), "nice");
+  const checked = (box) => [...box.querySelectorAll("input:checked")].map((i) => i.value);
+  const setChecked = (box, vals = []) => box.querySelectorAll("input").forEach((i) => { i.checked = vals.includes(i.value); });
+
+  const renderHoods = () => $("p-hood-chips").replaceChildren(...draft.hoods.map((h) => {
+    const c = el("button", { type: "button", className: "chip", textContent: h });
+    c.addEventListener("click", () => { draft.hoods = draft.hoods.filter((x) => x !== h); renderHoods(); });
+    return c;
+  }));
+  const renderNear = () => {
+    $("p-near-clear").hidden = !draft.near;
+    message("p-near-msg", draft.near ? `Using: ${draft.near.label}` : "");
+  };
+  const addHood = () => {
+    const input = $("p-hood-input");
+    const v = [...$("hoods").options].map((o) => o.value).find((h) => h.toLowerCase() === input.value.trim().toLowerCase());
+    if (v && !draft.hoods.includes(v)) { draft.hoods.push(v); renderHoods(); }
+    if (v) input.value = "";
+  };
+  $("p-hood-input").addEventListener("change", addHood);
+  $("p-hood-input").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); addHood(); } });
+
+  const findNear = async () => {
+    const q = $("p-near").value.trim();
+    if (!q) return;
+    message("p-near-msg", "Looking it up…");
+    try {
+      const g = await geocode(q);
+      if (!g) { message("p-near-msg", "Couldn't find that address in NYC.", true); return; }
+      draft.near = { label: g.label.slice(0, 120), lat: g.lat, lng: g.lng, minutes: Number($("p-minutes").value) };
+      renderNear();
+    } catch (e) { message("p-near-msg", `Lookup failed: ${e.message}`, true); }
+  };
+  $("p-near-find").addEventListener("click", findNear);
+  $("p-near").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); findNear(); } });
+  $("p-minutes").addEventListener("change", () => { if (draft.near) draft.near.minutes = Number($("p-minutes").value); });
+  $("p-near-clear").addEventListener("click", () => { draft.near = null; $("p-near").value = ""; renderNear(); });
+
+  $("open-prefs").addEventListener("click", () => {
+    const p = state.prefs || {};
+    $("p-max").value = p.maxPrice ?? "";
+    setChecked($("p-beds"), p.beds);
+    setChecked($("p-must"), p.must);
+    setChecked($("p-nice"), p.nice);
+    draft.hoods = [...(p.hoods || [])];
+    draft.near = p.near ? { label: p.near.label, lat: p.near.lat, lng: p.near.lng, minutes: p.near.minutes ?? 30 } : null;
+    $("p-near").value = p.near?.label ?? "";
+    $("p-minutes").value = String(p.near?.minutes ?? 30);
+    document.querySelector(`input[name=p-conf][value=${p.confidence === "likely" ? "likely" : "any"}]`).checked = true;
+    renderHoods(); renderNear(); message("prefs-msg", "");
+    $("prefs-dialog").showModal();
+  });
+  $("prefs-cancel").addEventListener("click", () => $("prefs-dialog").close());
+  $("prefs-clear").addEventListener("click", async () => {
+    try { await clearPrefs(); $("prefs-dialog").close(); } catch (e) { message("prefs-msg", e.message, true); }
+  });
+  $("prefs-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    // only keys with values: the security rules reject anything else
+    const p = {};
+    if ($("p-max").value) p.maxPrice = Number($("p-max").value);
+    const beds = checked($("p-beds")); if (beds.length) p.beds = beds;
+    if (draft.hoods.length) p.hoods = draft.hoods;
+    if (draft.near) p.near = draft.near;
+    const must = checked($("p-must")); if (must.length) p.must = must;
+    const nice = checked($("p-nice")).filter((f) => !must.includes(f)); if (nice.length) p.nice = nice;
+    if (document.querySelector("input[name=p-conf]:checked").value === "likely") p.confidence = "likely";
+    try {
+      if (hasPrefs(p)) await savePrefs(p); else await clearPrefs();
+      $("prefs-dialog").close();
+    } catch (err) { message("prefs-msg", `Couldn't save: ${err.code || err.message}`, true); }
+  });
+
+  $("sort").addEventListener("change", () => { state.sortTouched = true; refresh(); });
+  $("matches-only").addEventListener("change", refresh);
 }
 
 // ---- Firebase -------------------------------------------------------------
@@ -341,6 +619,8 @@ function onUser(user) {
   ensureMap();
   listenListings();
   listenSearches();
+  listenPrefs();
+  listenEvents();
 }
 
 /** listings are split across a few documents; meta/status says which version is current */
@@ -401,6 +681,8 @@ function ensureMap() {
 // ---- wire up ----------------------------------------------------------------
 
 function wireUi() {
+  wirePrefs();
+  wireFeed();
   const addHood = () => {
     const input = $("hood-input");
     const all = [...$("hoods").options].map((o) => o.value);
@@ -411,16 +693,26 @@ function wireUi() {
   $("filters").addEventListener("submit", (e) => e.preventDefault());
   $("hood-input").addEventListener("change", addHood);
   $("hood-input").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); addHood(); } });
-  $("beds").addEventListener("click", (e) => {
-    const b = e.target.closest("button");
-    if (!b) return;
-    for (const x of $("beds").children) x.classList.toggle("on", x === b);
-    state.beds = b.dataset.v;
-    refresh();
-  });
+  $("feat-filter").replaceChildren(...Object.entries(FEATURES).map(([k, label]) => {
+    const b = el("button", { type: "button", className: "tog", textContent: label });
+    b.dataset.v = k;
+    b.setAttribute("aria-pressed", "false");
+    return b;
+  }));
+  // multi-select toggles; in "beds", the Any button clears the others
+  for (const id of ["beds", "reasons", "feat-filter"]) {
+    $(id).addEventListener("click", (e) => {
+      const b = e.target.closest("button");
+      if (!b) return;
+      const vals = pressed(id);
+      const v = b.dataset.v;
+      setPressed(id, !v ? [] : vals.includes(v) ? vals.filter((x) => x !== v) : [...vals, v]);
+      refresh();
+    });
+  }
   let t;
   for (const id of ["min", "max"]) $(id).addEventListener("input", () => { clearTimeout(t); t = setTimeout(refresh, 200); });
-  for (const id of ["reason", "delisted", "unflagged"]) $(id).addEventListener("change", refresh);
+  for (const id of ["delisted", "unflagged"]) $(id).addEventListener("change", refresh);
   $("more").addEventListener("click", () => { state.shown += PAGE; renderList(); });
 
   $("saved").addEventListener("change", () => {
@@ -462,6 +754,8 @@ function wireUi() {
 
 async function main() {
   wireUi();
+  // station data is small and static; re-render once it's in
+  loadStations().then(() => { stationCache.clear(); refresh(); }).catch(() => {});
   if ("serviceWorker" in navigator && !DEV) navigator.serviceWorker.register("/sw.js").catch(() => {});
   if (DEV) {
     $("who").textContent = "local preview";
@@ -469,6 +763,7 @@ async function main() {
     await ensureMap();
     const data = await (await fetch(CONFIG.devData)).json();
     setData(data.listings, { updated_at: data.generated_at });
+    listenPrefs();
     return;
   }
   if (!CONFIG.firebase?.apiKey || CONFIG.firebase.apiKey.startsWith("YOUR_")) {

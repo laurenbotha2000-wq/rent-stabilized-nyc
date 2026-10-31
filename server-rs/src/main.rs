@@ -3,6 +3,7 @@
 //!   reasier-server              run the server
 //!   reasier-server export DIR   sync once, write DIR/data.json (hosted site;
 //!                               descriptions omitted unless EXPORT_DESCRIPTIONS=1)
+//!   reasier-server import FILE  rebuild the database from a data.json-shaped file
 //!
 //! Environment:
 //!   PORT                 default 8787
@@ -26,6 +27,17 @@ fn env_or(key: &str, default: &str) -> String {
 #[tokio::main]
 async fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().map(String::as_str) == Some("import") {
+        let file = args.get(1).context("usage: reasier-server import FILE.json")?;
+        let db = PathBuf::from(env_or("DB_PATH", "reasier.db"));
+        let data: serde_json::Value = serde_json::from_slice(&std::fs::read(file)?)?;
+        let listings: Vec<_> = data["listings"].as_array().into_iter().flatten()
+            .filter_map(|l| l.as_object().cloned()).collect();
+        let seen = data["generated_at"].as_str().map_or_else(reasier::store::now_iso, str::to_string);
+        let added = reasier::store::import(&mut reasier::store::open(&db)?, &listings, &seen)?;
+        reasier::log!("imported {added} of {} listings into {}", listings.len(), db.display());
+        return Ok(());
+    }
     if args.first().map(String::as_str) == Some("export") {
         let out = args.get(1).context("usage: reasier-server export DIR")?;
         let db = PathBuf::from(env_or("DB_PATH", "reasier.db"));

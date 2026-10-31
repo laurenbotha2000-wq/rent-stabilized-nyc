@@ -82,6 +82,9 @@ button, input, select { font: inherit; color: inherit; }
 .seg button { border: 0; background: var(--bg); padding: 0 11px; cursor: pointer; border-left: 1px solid var(--line); }
 .seg button:first-child { border-left: 0; }
 .seg button.on { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.toggles-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.tog { border: 1px solid var(--line); background: var(--bg); border-radius: 999px; padding: 4px 10px; font-size: 12px; cursor: pointer; }
+.tog[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .chips:empty { display: none; }
 .chip { display: inline-flex; align-items: center; gap: 4px; background: var(--chip); border: 0;
@@ -120,6 +123,51 @@ button, input, select { font: inherit; color: inherit; }
 #more { margin-top: 12px; }
 
 .view-tabs { display: none; }
+
+.list-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 8px; }
+.list-head .summary { margin: 0; }
+.sort { font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+.sort select { height: 30px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); padding: 0 6px; }
+.matches-only { display: flex; gap: 6px; align-items: center; font-size: 13px; margin: 0 0 10px; color: var(--muted); }
+.match { display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px; font-size: 12px; }
+.match-score { font-weight: 700; color: var(--accent); white-space: nowrap; }
+.match-score.low { color: var(--muted); }
+.match-why { color: var(--muted); }
+.prefs { display: flex; flex-direction: column; gap: 12px; }
+/* text-box sizing shouldn't apply to checkboxes and radios */
+.field input[type="checkbox"], .field input[type="radio"] { height: auto; padding: 0; margin: 0; flex: none; }
+.radio { display: flex; gap: 8px; align-items: flex-start; margin: 4px 0; font-size: 13px; }
+.radio input { margin-top: 3px !important; }
+.prefs .row.end { position: sticky; bottom: -22px; background: var(--panel); padding: 12px 0 4px; margin: 0;
+  border-top: 1px solid var(--line); }
+.prefs fieldset { border: 0; padding: 0; margin: 0; }
+.prefs-grid { display: grid; grid-template-columns: minmax(140px, 1fr) 2fr; gap: 12px; }
+.checks { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 13px; }
+.checks label { display: flex; gap: 6px; align-items: center; }
+.row.wrap { flex-wrap: wrap; }
+.row.wrap input { flex: 1 1 220px; height: 34px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
+.row.wrap select { height: 34px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
+.small-text { font-size: 12px; margin: 0; }
+.feature-list { font-size: 13px; color: var(--muted); margin: 6px 0; }
+@media (max-width: 560px) { .prefs-grid { grid-template-columns: 1fr; } }
+
+.count { display: inline-block; min-width: 18px; padding: 0 5px; margin-left: 4px; border-radius: 999px;
+  background: var(--accent); color: var(--accent-ink); font-size: 11px; font-weight: 700; line-height: 18px; text-align: center; }
+.feed { display: grid; gap: 2px; max-height: 60dvh; overflow: auto; margin-top: 8px; }
+.feed-item { display: grid; grid-template-columns: auto 1fr auto; gap: 4px 10px; align-items: baseline; text-align: left;
+  padding: 8px 6px; border: 0; border-bottom: 1px solid var(--line); background: none; cursor: pointer; }
+.feed-item:hover { background: var(--bg); }
+.feed-item .kind { font-size: 11px; font-weight: 700; padding: 1px 6px; border-radius: 6px; background: var(--chip); }
+.feed-item .kind.price_drop { color: var(--b-text); background: var(--b-text-bg); }
+.feed-item .kind.price_up, .feed-item .kind.delisted { color: var(--muted); background: var(--bg); border: 1px solid var(--line); }
+.feed-item .what { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.feed-item .when { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.feed-item .yours { grid-column: 2 / -1; color: var(--accent); font-size: 12px; }
+.toast { position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 20;
+  display: flex; align-items: center; gap: 10px; background: var(--panel); color: var(--ink); border: 1px solid var(--accent);
+  border-radius: 12px; padding: 10px 12px; box-shadow: 0 6px 24px rgba(0,0,0,.18); max-width: calc(100vw - 32px); }
+.toast .link { font-size: 18px; color: var(--muted); }
+.card .new-badge { font-size: 11px; font-weight: 700; color: var(--accent); }
 
 dialog.sheet { border: 1px solid var(--line); border-radius: 14px; padding: 22px; width: min(640px, calc(100vw - 32px));
   max-height: calc(100dvh - 48px); background: var(--panel); color: var(--ink); }

@@ -1,0 +1,12 @@
+{
+  "name": "rent-stabilized-e2e",
+  "private": true,
+  "type": "module",
+  "description": "Playwright walkthrough of the hosted site (local preview mode + live sign-in screen)",
+  "scripts": {
+    "test": "node walkthrough.mjs"
+  },
+  "dependencies": {
+    "playwright": "^1.64.1"
+  }
+}

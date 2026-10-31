@@ -12,3 +12,7 @@ data/rgb/*.pdf
 *-service-account*.json
 .firebase/
 .DS_Store
+state/
+out/
+e2e/node_modules/
+e2e/shots/

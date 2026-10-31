@@ -54,6 +54,8 @@
       <div class="brand"><span class="logo" aria-hidden="true"></span><h1>Rent Stabilized NYC</h1></div>
       <div class="status" id="status" role="status"></div>
       <div class="account">
+        <button class="btn ghost small" id="open-feed">What's new <span class="count" id="feed-count" hidden></span></button>
+        <button class="btn small" id="open-prefs">My preferences</button>
         <span class="who" id="who"></span>
         <button class="btn ghost small sign-out">Sign out</button>
       </div>
@@ -67,27 +69,30 @@
         <div class="chips" id="hood-chips"></div>
       </label>
       <fieldset class="field">
-        <legend>Bedrooms</legend>
-        <div class="seg" id="beds">
-          <button type="button" data-v="" class="on">Any</button>
-          <button type="button" data-v="0">Studio</button>
-          <button type="button" data-v="1">1</button>
-          <button type="button" data-v="2">2</button>
-          <button type="button" data-v="3">3</button>
-          <button type="button" data-v="4">4+</button>
+        <legend>Bedrooms (pick any)</legend>
+        <div class="seg" id="beds" role="group" aria-label="Bedrooms">
+          <button type="button" data-v="" class="on" aria-pressed="true">Any</button>
+          <button type="button" data-v="0" aria-pressed="false">Studio</button>
+          <button type="button" data-v="1" aria-pressed="false">1</button>
+          <button type="button" data-v="2" aria-pressed="false">2</button>
+          <button type="button" data-v="3" aria-pressed="false">3</button>
+          <button type="button" data-v="4" aria-pressed="false">4+</button>
         </div>
       </fieldset>
       <label class="field small"><span>Min $</span><input id="min" type="number" min="0" step="50" inputmode="numeric"></label>
       <label class="field small"><span>Max $</span><input id="max" type="number" min="0" step="50" inputmode="numeric"></label>
-      <label class="field">
-        <span>Why it's flagged</span>
-        <select id="reason">
-          <option value="">Any reason</option>
-          <option value="IN_CITY_PDFS">Building on city list</option>
-          <option value="UNEVEN_PRICE">Uneven price</option>
-          <option value="RENT_STABILIZED_TEXT_IN_LISTING">Says so in listing</option>
-        </select>
-      </label>
+      <fieldset class="field">
+        <legend>Why it's flagged (any of)</legend>
+        <div class="toggles-row" id="reasons" role="group" aria-label="Why it's flagged">
+          <button type="button" class="tog" data-v="IN_CITY_PDFS" aria-pressed="false">City-list building</button>
+          <button type="button" class="tog" data-v="UNEVEN_PRICE" aria-pressed="false">Uneven price</button>
+          <button type="button" class="tog" data-v="RENT_STABILIZED_TEXT_IN_LISTING" aria-pressed="false">Says so in listing</button>
+        </div>
+      </fieldset>
+      <fieldset class="field grow">
+        <legend>Amenities (must mention all)</legend>
+        <div class="toggles-row" id="feat-filter" role="group" aria-label="Amenities"></div>
+      </fieldset>
       <div class="field toggles">
         <label><input type="checkbox" id="delisted"> Include delisted</label>
         <label><input type="checkbox" id="unflagged"> Include unflagged</label>
@@ -119,7 +124,20 @@
         </div>
       </div>
       <div class="list-wrap">
-        <div class="summary" id="summary"></div>
+        <div class="list-head">
+          <div class="summary" id="summary"></div>
+          <label class="sort">Sort
+            <select id="sort">
+              <option value="match">Best match</option>
+              <option value="newest">Newest</option>
+              <option value="price-asc">Price: low to high</option>
+              <option value="price-desc">Price: high to low</option>
+            </select>
+          </label>
+        </div>
+        <label class="matches-only" id="matches-only-wrap" hidden>
+          <input type="checkbox" id="matches-only" checked> Only show apartments that meet my must-haves
+        </label>
         <div class="list" id="list"></div>
         <button class="btn ghost wide" id="more" hidden>Show more</button>
       </div>
@@ -145,8 +163,84 @@
     </form>
   </dialog>
 
+  <dialog id="feed-dialog" class="sheet">
+    <form method="dialog"><button class="close" aria-label="Close">×</button></form>
+    <h2>What's new</h2>
+    <p class="muted small-text">Changes picked up by the sync over the last 30 days, newest first.</p>
+    <div class="feed" id="feed"></div>
+  </dialog>
+
+  <div class="toast" id="toast" role="status" hidden>
+    <span id="toast-text"></span>
+    <button class="btn small" id="toast-view">View</button>
+    <button class="link" id="toast-close" aria-label="Dismiss">×</button>
+  </div>
+
+  <dialog id="prefs-dialog" class="sheet">
+    <form method="dialog" id="prefs-form" class="prefs">
+      <h2>My preferences</h2>
+      <p class="muted small-text">We'll rank apartments by how well they fit. Only you can see these.</p>
+
+      <div class="prefs-grid">
+        <label class="field"><span>Max rent per month</span>
+          <input id="p-max" type="number" min="0" step="50" inputmode="numeric" placeholder="e.g. 3200"></label>
+        <fieldset class="field"><legend>Bedrooms (any that work)</legend>
+          <div class="checks" id="p-beds">
+            <label><input type="checkbox" value="0"> Studio</label>
+            <label><input type="checkbox" value="1"> 1</label>
+            <label><input type="checkbox" value="2"> 2</label>
+            <label><input type="checkbox" value="3"> 3</label>
+            <label><input type="checkbox" value="4"> 4+</label>
+          </div>
+        </fieldset>
+      </div>
+
+      <label class="field"><span>Neighborhoods (leave empty for anywhere)</span>
+        <input id="p-hood-input" list="hoods" placeholder="Type to add, e.g. Crown Heights"></label>
+      <div class="chips" id="p-hood-chips"></div>
+
+      <fieldset class="field"><legend>Commute to a place (work, school, family)</legend>
+        <div class="row wrap">
+          <input id="p-near" placeholder="Address, e.g. 1 Centre St, Manhattan">
+          <select id="p-minutes" aria-label="Longest commute">
+            <option value="15">up to 15 min</option>
+            <option value="20">up to 20 min</option>
+            <option value="30" selected>up to 30 min</option>
+            <option value="45">up to 45 min</option>
+            <option value="60">up to 60 min</option>
+          </select>
+          <button type="button" class="btn ghost small" id="p-near-find">Find</button>
+          <button type="button" class="btn ghost small" id="p-near-clear" hidden>Clear</button>
+        </div>
+        <p class="msg" id="p-near-msg"></p>
+        <p class="muted small-text">Commutes are estimated by subway (walk + wait + ride, plus time for a transfer). Each apartment has a link to exact directions.</p>
+      </fieldset>
+
+      <fieldset class="field"><legend>Must have</legend>
+        <div class="checks" id="p-must"></div>
+      </fieldset>
+      <fieldset class="field"><legend>Nice to have</legend>
+        <div class="checks" id="p-nice"></div>
+      </fieldset>
+
+      <fieldset class="field"><legend>How sure should we be it's rent stabilized?</legend>
+        <label class="radio"><input type="radio" name="p-conf" value="any" checked> Show anything we flagged</label>
+        <label class="radio"><input type="radio" name="p-conf" value="likely"> Only the most likely (city-list building with an uneven price, or the listing says so)</label>
+      </fieldset>
+
+      <p class="muted small-text">Amenities come from the listing text, which is sometimes cut short, so "not mentioned" doesn't always mean "doesn't have it".</p>
+      <p class="msg" id="prefs-msg"></p>
+      <div class="row end">
+        <button type="button" id="prefs-clear" class="btn ghost">Clear all</button>
+        <button type="button" id="prefs-cancel" class="btn ghost">Cancel</button>
+        <button value="save" class="btn">Save preferences</button>
+      </div>
+    </form>
+  </dialog>
+
   <template id="card-tpl">
     <article class="card" tabindex="0">
+      <div class="match" hidden><span class="match-score"></span><span class="match-why"></span></div>
       <div class="card-head"><span class="price"></span><span class="layout"></span></div>
       <div class="hood"></div>
       <div class="addr"></div>

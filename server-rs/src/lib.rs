@@ -4,6 +4,7 @@
 //! embedded in the desktop app.
 
 pub mod api;
+pub mod features;
 pub mod flags;
 pub mod geocode;
 pub mod source;

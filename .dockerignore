@@ -10,3 +10,4 @@ __pycache__
 desktop/gen
 desktop/icons
 
+*-service-account*.json
