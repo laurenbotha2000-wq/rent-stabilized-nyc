@@ -87,3 +87,30 @@ Open the site in Safari (iPhone) or Chrome (Android), then choose **Share → Ad
 ## Changing the sync interval
 
 Edit the `cron` line in [`.github/workflows/sync.yml`](.github/workflows/sync.yml). `*/5 * * * *` is every 5 minutes, GitHub's minimum; GitHub may start runs a few minutes late when busy.
+
+## Faster polling from your Mac (every 2 minutes)
+
+GitHub checks every 5 minutes and stands down whenever your Mac has checked
+in the last 4 minutes. To turn the Mac poller on:
+
+```bash
+cp ~/Downloads/reasier-client/scripts/com.lauren.rent-stabilized-sync.plist ~/Library/LaunchAgents/
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.lauren.rent-stabilized-sync.plist
+```
+
+Log: `~/Library/Logs/rent-stabilized-sync.log`. To turn it off:
+`launchctl bootout gui/$(id -u)/com.lauren.rent-stabilized-sync`.
+If macOS asks whether `bash` may access your Downloads folder, allow it.
+
+## App Check (blocks requests that don't come from your site)
+
+1. Google Cloud console → **Security → reCAPTCHA** → **Create key**: type
+   *Website*, domains `rent-stabilized-nyc.web.app` and
+   `rent-stabilized-nyc.firebaseapp.com`. Copy the key ID.
+2. Firebase console → **App Check** → your web app → **reCAPTCHA Enterprise**
+   → paste the key ID → Save.
+3. Put the key ID in `web/config.js` as `appCheckSiteKey`, then deploy
+   (`firebase deploy --only hosting`).
+4. Watch **App Check → Firestore** metrics for a day. When nearly all
+   requests show as verified, click **Enforce**. From then on, Firestore
+   refuses anything that isn't your real site, even with a valid login.
