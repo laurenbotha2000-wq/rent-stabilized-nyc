@@ -93,6 +93,34 @@
         <legend>Amenities (must mention all)</legend>
         <div class="toggles-row" id="feat-filter" role="group" aria-label="Amenities"></div>
       </fieldset>
+      <fieldset class="field grow commute-filter">
+        <legend>Subway commute to</legend>
+        <div class="row">
+          <input id="c-place" placeholder="Work or school address" autocomplete="street-address">
+          <select id="c-minutes" aria-label="Longest commute">
+            <option value="20">≤ 20 min</option>
+            <option value="30" selected>≤ 30 min</option>
+            <option value="45">≤ 45 min</option>
+            <option value="60">≤ 60 min</option>
+          </select>
+          <button type="button" class="btn ghost small" id="c-set">Set</button>
+          <button type="button" class="btn ghost small" id="c-clear" hidden>Clear</button>
+        </div>
+        <span class="msg" id="c-msg"></span>
+      </fieldset>
+      <fieldset class="field">
+        <legend>Walk to subway</legend>
+        <select id="walk" aria-label="Longest walk to a subway station">
+          <option value="">Any</option>
+          <option value="5">≤ 5 min</option>
+          <option value="10">≤ 10 min</option>
+          <option value="15">≤ 15 min</option>
+        </select>
+      </fieldset>
+      <fieldset class="field grow">
+        <legend>Subway lines nearby (any of)</legend>
+        <div class="toggles-row lines" id="lines" role="group" aria-label="Subway lines"></div>
+      </fieldset>
       <div class="field toggles">
         <label><input type="checkbox" id="delisted"> Include delisted</label>
         <label><input type="checkbox" id="unflagged"> Include unflagged</label>
@@ -132,6 +160,7 @@
               <option value="newest">Newest</option>
               <option value="price-asc">Price: low to high</option>
               <option value="price-desc">Price: high to low</option>
+              <option value="commute" id="sort-commute" hidden>Shortest commute</option>
             </select>
           </label>
         </div>

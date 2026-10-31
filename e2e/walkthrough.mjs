@@ -81,6 +81,46 @@ async function newPage(viewport) {
   check("saved search stored and selected", (await page.$eval("#saved", (s) => s.selectedOptions[0]?.textContent)) === "1BR test");
   await page.click('#beds button[data-v=""]');
 
+  // subway filters (no preferences set yet)
+  await page.waitForFunction(() => document.querySelectorAll("#lines button").length > 10, null, { timeout: 10000 });
+  check("subway line toggles load", true, `${await page.locator("#lines button").count()} lines`);
+  await page.selectOption("#walk", "5");
+  const walk5 = await count(page);
+  check("walk ≤ 5 min narrows results", walk5 > 0 && walk5 < all, `${walk5}`);
+  await page.selectOption("#walk", "");
+  await page.click('#lines button[data-v="L"]');
+  const lineL = await count(page);
+  await page.click('#lines button[data-v="G"]');
+  const lineLG = await count(page);
+  check("lines are any-of (L, then L or G)", lineL > 0 && lineL < all && lineLG >= lineL, `L ${lineL}, L/G ${lineLG}`);
+  await page.click('#lines button[data-v="L"]');
+  await page.click('#lines button[data-v="G"]');
+  check("subway filters reset", (await count(page)) === all);
+
+  await page.fill("#c-place", "1 Centre Street, Manhattan");
+  await page.selectOption("#c-minutes", "30");
+  await page.click("#c-set");
+  await page.waitForFunction(() => !document.querySelector("#c-clear").hidden, null, { timeout: 15000 })
+    .catch(async () => check("commute address lookup", false, await page.textContent("#c-msg")));
+  const within30 = await count(page);
+  check("commute ≤ 30 min filters", within30 > 0 && within30 < all, `${within30} of ${all}`);
+  check("cards show commute", /~\d+ min.* to 1 Center Street/.test((await page.textContent(".card .commute")) || ""),
+    await page.textContent(".card .commute").catch(() => ""));
+  const mins = await page.$$eval(".card .commute", (els) => els.map((e) => Number(e.textContent.match(/~(\d+)/)?.[1])));
+  check("sorted by shortest commute", mins.length > 1 && mins.every((m, i) => i === 0 || m >= mins[i - 1]) && mins.every((m) => m <= 30),
+    mins.slice(0, 6).join(", "));
+  await page.selectOption("#c-minutes", "45");
+  check("raising the limit adds apartments", (await count(page)) > within30);
+  await page.screenshot({ path: `${SHOTS}02b-commute-filter.png` });
+  await page.click("#save-search");
+  await page.fill("#save-name", "Commute test");
+  await page.press("#save-name", "Enter");
+  await page.click("#c-clear");
+  check("clearing commute restores all", (await count(page)) === all);
+  await page.selectOption("#saved", { label: "Commute test" });
+  check("saved search restores commute filter", !(await page.isHidden("#c-clear")) && (await count(page)) < all);
+  await page.click("#c-clear");
+
   // preferences with a commute
   await page.click("#open-prefs");
   await page.fill("#p-max", "3500");

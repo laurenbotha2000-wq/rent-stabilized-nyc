@@ -27,7 +27,14 @@ service cloud.firestore {
         && d.name is string && d.name.size() > 0 && d.name.size() <= 80
         && d.created_at is timestamp
         && f is map
-        && f.keys().hasOnly(['hoods', 'beds', 'min', 'max', 'reason', 'features', 'delisted', 'unflagged'])
+        && f.keys().hasOnly(['hoods', 'beds', 'min', 'max', 'reason', 'features', 'commute', 'walk', 'lines', 'delisted', 'unflagged'])
+        && (!('commute' in f) || (f.commute is map
+            && f.commute.keys().hasOnly(['label', 'lat', 'lng', 'minutes'])
+            && f.commute.label is string && f.commute.label.size() <= 120
+            && f.commute.lat is number && f.commute.lng is number
+            && f.commute.minutes is number && f.commute.minutes >= 5 && f.commute.minutes <= 120))
+        && (!('walk' in f) || (f.walk is number && f.walk > 0 && f.walk <= 30))
+        && (!('lines' in f) || (f.lines is list && f.lines.size() <= 30))
         && (!('hoods' in f) || (f.hoods is list && f.hoods.size() <= 50))
         && (!('beds' in f) || (f.beds is list && f.beds.size() <= 6))
         && (!('min' in f) || f.min is number)

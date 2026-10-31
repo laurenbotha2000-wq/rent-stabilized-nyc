@@ -83,6 +83,11 @@ button, input, select { font: inherit; color: inherit; }
 .seg button:first-child { border-left: 0; }
 .seg button.on { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
 .toggles-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.commute-filter .row { flex-wrap: wrap; }
+.commute-filter input { flex: 1 1 200px; height: 34px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
+.commute-filter select, #walk { height: 34px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); padding: 0 6px; }
+.lines .tog { min-width: 30px; padding: 4px 8px; font-weight: 700; }
+.card .commute { font-size: 12px; color: var(--accent); font-weight: 600; }
 .tog { border: 1px solid var(--line); background: var(--bg); border-radius: 999px; padding: 4px 10px; font-size: 12px; cursor: pointer; }
 .tog[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }

@@ -28,6 +28,15 @@ export async function loadStations() {
   return stations;
 }
 
+export const stationsReady = () => stations.length > 0;
+
+// display order for line pickers: numbered lines, then letters by trunk line
+const LINE_ORDER = ["1", "2", "3", "4", "5", "6", "7", "A", "C", "E", "B", "D", "F", "M", "G", "J", "Z", "L", "N", "Q", "R", "W", "S", "SIR"];
+export function allLines() {
+  const have = new Set(stations.flatMap((s) => s.routes));
+  return [...LINE_ORDER.filter((l) => have.has(l)), ...[...have].filter((l) => !LINE_ORDER.includes(l)).sort()];
+}
+
 const walkMin = (mi) => (mi * DETOUR / WALK_MPH) * 60;
 // Results depend only on coordinates, and the same points are asked about on
 // every filter change, so remember them.

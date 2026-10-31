@@ -3,7 +3,7 @@
 import { CONFIG } from "./config.js";
 import { createMap } from "./map.js";
 import { FEATURES, geocode, hasPrefs, match, placeName } from "./prefs.js";
-import { commute, describe, directionsUrl, loadStations, nearest } from "./commute.js";
+import { commute, describe, directionsUrl, loadStations, nearby, nearest, stationsReady, allLines } from "./commute.js";
 
 const SDK = "https://www.gstatic.com/firebasejs/11.0.2";
 const $ = (id) => document.getElementById(id);
@@ -97,6 +97,9 @@ function currentFilters() {
   if ($("max").value) f.max = Number($("max").value);
   const reasons = pressed("reasons"); if (reasons.length) f.reason = reasons;
   const features = pressed("feat-filter"); if (features.length) f.features = features;
+  if (state.commuteTo) f.commute = { ...state.commuteTo };
+  if ($("walk").value) f.walk = Number($("walk").value);
+  const lines = pressed("lines"); if (lines.length) f.lines = lines;
   if ($("delisted").checked) f.delisted = true;
   if ($("unflagged").checked) f.unflagged = true;
   return f;
@@ -107,6 +110,9 @@ function applyFilters(f) {
   setPressed("beds", asList(f.beds));
   setPressed("reasons", asList(f.reason));
   setPressed("feat-filter", asList(f.features));
+  setPressed("lines", asList(f.lines));
+  $("walk").value = f.walk ? String(f.walk) : "";
+  setCommute(f.commute || null, { quiet: true });
   $("min").value = f.min ?? "";
   $("max").value = f.max ?? "";
   $("delisted").checked = !!f.delisted;
@@ -125,14 +131,30 @@ function matches(l, f) {
   if (f.max !== undefined && !(l.price <= f.max)) return false;
   if (f.reason && !f.reason.some((r) => l.reasons.includes(r))) return false;
   if (f.features && !f.features.every((x) => (l.features || []).includes(x))) return false;
+  // subway filters need station data; until it loads they don't exclude anything
+  if ((f.walk || f.lines) && stationsReady()) {
+    if (l.lat == null) return false;
+    const reach = nearby(l, 8, walkMiles(f.walk || 15));
+    if (!reach.length) return false;
+    if (f.lines && !reach.some((s) => s.routes.some((r) => f.lines.includes(r)))) return false;
+  }
+  if (f.commute) {
+    const c = commuteFor(l, f.commute);
+    if (!c || c.minutes > f.commute.minutes) return false;
+  }
   return true;
 }
+
+/** Miles someone covers walking for `minutes` (same pace as the commute estimates). */
+const walkMiles = (minutes) => (minutes / 60) * 3 / 1.25;
+const commuteFor = (l, to) => (l.lat == null ? null : commute(l, to));
 
 const SORTS = {
   match: (a, b) => (b._m?.score ?? 0) - (a._m?.score ?? 0) || (b.first_seen || "").localeCompare(a.first_seen || ""),
   newest: (a, b) => (b.first_seen || "").localeCompare(a.first_seen || ""),
   "price-asc": (a, b) => (a.price ?? Infinity) - (b.price ?? Infinity),
   "price-desc": (a, b) => (b.price ?? -Infinity) - (a.price ?? -Infinity),
+  commute: (a, b) => (a._c?.minutes ?? Infinity) - (b._c?.minutes ?? Infinity),
 };
 
 function refresh({ fit = false } = {}) {
@@ -141,11 +163,14 @@ function refresh({ fit = false } = {}) {
   $("matches-only-wrap").hidden = !personal;
   state.filtered = state.listings.filter((l) => {
     if (!matches(l, f)) return false;
+    l._c = f.commute ? commuteFor(l, f.commute) : null;
     l._m = personal ? match(l, state.prefs) : null;
     return !(personal && $("matches-only").checked && !l._m.ok);
   });
+  $("sort-commute").hidden = !f.commute;
   let sort = $("sort").value;
-  if (sort === "match" && !personal) sort = "newest";
+  if (sort === "match" && !personal) sort = f.commute ? "commute" : "newest";
+  if (sort === "commute" && !f.commute) sort = personal ? "match" : "newest";
   state.filtered.sort(SORTS[sort]);
   state.shown = PAGE;
   state.map?.setListings(state.filtered);
@@ -187,6 +212,10 @@ function renderList() {
     const meta = [l.status === "DELISTED" ? `Delisted ${day(l.delisted_at)}` : `Listed ${day(l.first_seen)}`];
     const st = stationFor(l);
     if (st) meta.push(`${st.walk} min walk to ${st.name} (${st.routes.join(" ")})`);
+    if (l._c) {
+      card.querySelector(".hood").before(el("div", { className: "commute",
+        textContent: `${describe(l._c).split(":")[0]} to ${placeName(state.commuteTo)}` }));
+    }
     if (l.status === "DELISTED") card.classList.add("gone");
     card.querySelector(".meta").textContent = meta.join(" · ");
     card.addEventListener("click", () => openDetail(l.url, true));
@@ -291,7 +320,7 @@ function syncSavedSelect() {
 }
 const normalize = (f) => {
   const o = {};
-  for (const k of ["hoods", "beds", "min", "max", "reason", "features", "delisted", "unflagged"]) if (f?.[k] !== undefined) o[k] = f[k];
+  for (const k of ["hoods", "beds", "min", "max", "reason", "features", "commute", "walk", "lines", "delisted", "unflagged"]) if (f?.[k] !== undefined) o[k] = f[k];
   for (const k of ["beds", "reason"]) if (o[k] !== undefined) o[k] = asList(o[k]); // older saves held one value
   return o;
 };
@@ -300,6 +329,52 @@ function renderSaved() {
   $("saved").replaceChildren(el("option", { value: "", textContent: state.searches.length ? "Choose…" : "None yet" }),
     ...state.searches.map((s) => el("option", { value: s.id, textContent: s.name })));
   syncSavedSelect();
+}
+
+// ---- commute filter -----------------------------------------------------------
+
+function renderLineToggles() {
+  const keep = pressed("lines");
+  $("lines").replaceChildren(...allLines().map((line) => {
+    const b = el("button", { type: "button", className: "tog", textContent: line });
+    b.dataset.v = line;
+    b.setAttribute("aria-label", `${line} train`);
+    return b;
+  }));
+  setPressed("lines", keep);
+}
+
+function setCommute(to, { quiet = false } = {}) {
+  state.commuteTo = to ? { label: to.label, lat: to.lat, lng: to.lng, minutes: to.minutes } : null;
+  $("c-clear").hidden = !state.commuteTo;
+  if (state.commuteTo) {
+    $("c-place").value = state.commuteTo.label;
+    $("c-minutes").value = String(state.commuteTo.minutes);
+    if (!state.sortTouched && !hasPrefs(state.prefs)) $("sort").value = "commute";
+  } else if ($("sort").value === "commute") {
+    $("sort").value = hasPrefs(state.prefs) ? "match" : "newest";
+  }
+  message("c-msg", state.commuteTo ? `Estimated by subway to ${placeName(state.commuteTo)}` : "");
+  if (!quiet) refresh();
+}
+
+function wireCommuteFilter() {
+  const find = async () => {
+    const q = $("c-place").value.trim();
+    if (!q) return;
+    message("c-msg", "Looking it up…");
+    try {
+      const g = await geocode(q);
+      if (!g) { message("c-msg", "Couldn't find that address in NYC.", true); return; }
+      setCommute({ label: g.label.slice(0, 120), lat: g.lat, lng: g.lng, minutes: Number($("c-minutes").value) });
+    } catch (e) { message("c-msg", `Lookup failed: ${e.message}`, true); }
+  };
+  $("c-set").addEventListener("click", find);
+  $("c-place").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); find(); } });
+  $("c-minutes").addEventListener("change", () => {
+    if (state.commuteTo) setCommute({ ...state.commuteTo, minutes: Number($("c-minutes").value) });
+  });
+  $("c-clear").addEventListener("click", () => { $("c-place").value = ""; setCommute(null); });
 }
 
 // ---- what's new (events) ----------------------------------------------------
@@ -700,7 +775,7 @@ function wireUi() {
     return b;
   }));
   // multi-select toggles; in "beds", the Any button clears the others
-  for (const id of ["beds", "reasons", "feat-filter"]) {
+  for (const id of ["beds", "reasons", "feat-filter", "lines"]) {
     $(id).addEventListener("click", (e) => {
       const b = e.target.closest("button");
       if (!b) return;
@@ -712,7 +787,8 @@ function wireUi() {
   }
   let t;
   for (const id of ["min", "max"]) $(id).addEventListener("input", () => { clearTimeout(t); t = setTimeout(refresh, 200); });
-  for (const id of ["delisted", "unflagged"]) $(id).addEventListener("change", refresh);
+  for (const id of ["delisted", "unflagged", "walk"]) $(id).addEventListener("change", refresh);
+  wireCommuteFilter();
   $("more").addEventListener("click", () => { state.shown += PAGE; renderList(); });
 
   $("saved").addEventListener("change", () => {
@@ -755,7 +831,7 @@ function wireUi() {
 async function main() {
   wireUi();
   // station data is small and static; re-render once it's in
-  loadStations().then(() => { stationCache.clear(); refresh(); }).catch(() => {});
+  loadStations().then(() => { stationCache.clear(); renderLineToggles(); refresh(); }).catch(() => {});
   if ("serviceWorker" in navigator && !DEV) navigator.serviceWorker.register("/sw.js").catch(() => {});
   if (DEV) {
     $("who").textContent = "local preview";
