@@ -56,8 +56,7 @@
       <div class="account">
         <button class="btn ghost small" id="open-feed">What's new <span class="count" id="feed-count" hidden></span></button>
         <button class="btn small" id="open-prefs">My preferences</button>
-        <span class="who" id="who"></span>
-        <button class="btn ghost small sign-out">Sign out</button>
+        <button class="avatar" id="open-profile" aria-label="My profile" title="My profile"><span id="avatar-initial">?</span></button>
       </div>
     </header>
 
@@ -81,18 +80,6 @@
       </fieldset>
       <label class="field small"><span>Min $</span><input id="min" type="number" min="0" step="50" inputmode="numeric"></label>
       <label class="field small"><span>Max $</span><input id="max" type="number" min="0" step="50" inputmode="numeric"></label>
-      <fieldset class="field">
-        <legend>Why it's flagged (any of)</legend>
-        <div class="toggles-row" id="reasons" role="group" aria-label="Why it's flagged">
-          <button type="button" class="tog" data-v="IN_CITY_PDFS" aria-pressed="false">City-list building</button>
-          <button type="button" class="tog" data-v="UNEVEN_PRICE" aria-pressed="false">Uneven price</button>
-          <button type="button" class="tog" data-v="RENT_STABILIZED_TEXT_IN_LISTING" aria-pressed="false">Says so in listing</button>
-        </div>
-      </fieldset>
-      <fieldset class="field grow">
-        <legend>Amenities (must mention all)</legend>
-        <div class="toggles-row" id="feat-filter" role="group" aria-label="Amenities"></div>
-      </fieldset>
       <fieldset class="field grow commute-filter">
         <legend>Subway commute to</legend>
         <div class="row">
@@ -108,22 +95,11 @@
         </div>
         <span class="msg" id="c-msg"></span>
       </fieldset>
-      <fieldset class="field">
-        <legend>Walk to subway</legend>
-        <select id="walk" aria-label="Longest walk to a subway station">
-          <option value="">Any</option>
-          <option value="5">≤ 5 min</option>
-          <option value="10">≤ 10 min</option>
-          <option value="15">≤ 15 min</option>
-        </select>
-      </fieldset>
-      <fieldset class="field grow">
-        <legend>Subway lines nearby (any of)</legend>
-        <div class="toggles-row lines" id="lines" role="group" aria-label="Subway lines"></div>
-      </fieldset>
-      <div class="field toggles">
-        <label><input type="checkbox" id="delisted"> Include delisted</label>
-        <label><input type="checkbox" id="unflagged"> Include unflagged</label>
+      <div class="field more-btn">
+        <span>&nbsp;</span>
+        <button type="button" class="btn ghost" id="toggle-more" aria-expanded="false" aria-controls="more-filters">
+          More filters <span class="count" id="more-count" hidden></span>
+        </button>
       </div>
       <div class="field saved">
         <span>Saved searches</span>
@@ -132,6 +108,37 @@
           <button type="button" id="save-search" class="btn ghost small">Save</button>
           <button type="button" id="delete-search" class="btn ghost small" hidden aria-label="Delete saved search">Delete</button>
         </div>
+      </div>
+      <div class="more-filters" id="more-filters" hidden>
+        <fieldset class="field">
+        <legend>Why it's flagged (any of)</legend>
+        <div class="toggles-row" id="reasons" role="group" aria-label="Why it's flagged">
+          <button type="button" class="tog" data-v="IN_CITY_PDFS" aria-pressed="false">City-list building</button>
+          <button type="button" class="tog" data-v="UNEVEN_PRICE" aria-pressed="false">Uneven price</button>
+          <button type="button" class="tog" data-v="RENT_STABILIZED_TEXT_IN_LISTING" aria-pressed="false">Says so in listing</button>
+        </div>
+      </fieldset>
+        <fieldset class="field">
+        <legend>Walk to subway</legend>
+        <select id="walk" aria-label="Longest walk to a subway station">
+          <option value="">Any</option>
+          <option value="5">≤ 5 min</option>
+          <option value="10">≤ 10 min</option>
+          <option value="15">≤ 15 min</option>
+        </select>
+      </fieldset>
+        <div class="field toggles">
+        <label><input type="checkbox" id="delisted"> Include delisted</label>
+        <label><input type="checkbox" id="unflagged"> Include unflagged</label>
+      </div>
+        <fieldset class="field grow">
+        <legend>Amenities (must mention all)</legend>
+        <div class="toggles-row" id="feat-filter" role="group" aria-label="Amenities"></div>
+      </fieldset>
+        <fieldset class="field grow">
+        <legend>Subway lines nearby (any of)</legend>
+        <div class="toggles-row lines" id="lines" role="group" aria-label="Subway lines"></div>
+      </fieldset>
       </div>
     </form>
 
@@ -190,6 +197,38 @@
         <button value="save" class="btn">Save</button>
       </div>
     </form>
+  </dialog>
+
+  <dialog id="profile-dialog" class="sheet">
+    <form method="dialog"><button class="close" aria-label="Close">×</button></form>
+    <h2>My profile</h2>
+
+    <section class="profile-section">
+      <h3>Account</h3>
+      <dl class="facts">
+        <dt>Signed in as</dt><dd id="pf-email"></dd>
+        <dt>Sign-in method</dt><dd id="pf-method"></dd>
+        <dt>Member since</dt><dd id="pf-since"></dd>
+      </dl>
+      <button class="btn ghost small sign-out">Sign out</button>
+    </section>
+
+    <section class="profile-section">
+      <div class="section-head"><h3>My preferences</h3><button class="btn ghost small" id="pf-edit-prefs">Edit</button></div>
+      <p class="muted" id="pf-prefs"></p>
+    </section>
+
+    <section class="profile-section">
+      <div class="section-head"><h3>Saved searches</h3><button class="btn ghost small" id="pf-save-current">Save current search</button></div>
+      <ul class="saved-list" id="pf-searches"></ul>
+    </section>
+
+    <section class="profile-section danger">
+      <h3>Your data</h3>
+      <p class="muted small-text">Your preferences and saved searches are stored privately in your account and only you can see them. Deleting your account removes them permanently.</p>
+      <button class="btn ghost small danger-btn" id="pf-delete">Delete my account and data</button>
+      <p class="msg" id="pf-msg" role="alert"></p>
+    </section>
   </dialog>
 
   <dialog id="feed-dialog" class="sheet">

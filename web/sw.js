@@ -1,6 +1,6 @@
 // Offline app shell. Listing data is never cached here: it comes from
 // Firestore and requires sign-in.
-const CACHE = "shell-v3";
+const CACHE = "shell-v4";
 const SHELL = ["/", "/index.html", "/style.css", "/app.js", "/map.js", "/prefs.js", "/commute.js", "/stations.json", "/config.js",
   "/manifest.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png"];
 

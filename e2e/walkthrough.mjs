@@ -58,6 +58,9 @@ async function newPage(viewport) {
   await page.click('#beds button[data-v=""]');
   check("Any clears bedrooms", (await count(page)) === all);
 
+  check("more filters collapsed by default", await page.isHidden("#more-filters"));
+  await page.click("#toggle-more");
+  check("more filters opens", await page.isVisible("#feat-filter"));
   await page.click('#reasons button[data-v="UNEVEN_PRICE"]');
   await page.click('#reasons button[data-v="RENT_STABILIZED_TEXT_IN_LISTING"]');
   const anyOf = await count(page);
@@ -96,6 +99,9 @@ async function newPage(viewport) {
   await page.click('#lines button[data-v="L"]');
   await page.click('#lines button[data-v="G"]');
   check("subway filters reset", (await count(page)) === all);
+  await page.screenshot({ path: `${SHOTS}06c-more-filters.png` });
+  await page.click("#toggle-more");
+  check("more filters closes", await page.isHidden("#more-filters"));
 
   await page.fill("#c-place", "1 Centre Street, Manhattan");
   await page.selectOption("#c-minutes", "30");
@@ -152,6 +158,23 @@ async function newPage(viewport) {
   check("detail has directions link", await page.locator("#detail-body button.link", { hasText: "Exact directions" }).count() === 1);
   await page.screenshot({ path: `${SHOTS}05-detail.png` });
   await page.keyboard.press("Escape");
+
+  // profile: saved searches can be run and renamed
+  await page.click("#open-profile");
+  await page.waitForSelector("#profile-dialog[open]");
+  const saved = await page.locator("#pf-searches .saved-item").count();
+  check("profile lists saved searches", saved >= 2, `${saved} searches`);
+  check("profile shows preferences", /up to \$3,500/.test(await page.textContent("#pf-prefs")), await page.textContent("#pf-prefs"));
+  const summary = await page.locator("#pf-searches .saved-item .summary").first().textContent();
+  check("saved search summary", summary.length > 3, summary);
+  await page.locator("#pf-searches .saved-item").first().getByRole("button", { name: "Rename" }).click();
+  await page.fill('#pf-searches input[aria-label="New name"]', "Renamed search");
+  await page.press('#pf-searches input[aria-label="New name"]', "Enter");
+  await page.waitForTimeout(200);
+  check("rename a saved search", (await page.textContent("#pf-searches")).includes("Renamed search"));
+  await page.screenshot({ path: `${SHOTS}06b-profile.png` });
+  await page.locator("#pf-searches .saved-item").first().getByRole("button", { name: "Run" }).click();
+  check("run a saved search from profile", !(await page.locator("#profile-dialog[open]").count()) && (await count(page)) > 0);
 
   // what's new
   await page.click("#open-feed");

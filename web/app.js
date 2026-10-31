@@ -161,6 +161,10 @@ function refresh({ fit = false } = {}) {
   const f = currentFilters();
   const personal = hasPrefs(state.prefs);
   $("matches-only-wrap").hidden = !personal;
+  // how many filters are set inside the collapsed "More filters" panel
+  const more = ["reason", "features", "walk", "lines", "delisted", "unflagged"].filter((k) => f[k] !== undefined).length;
+  $("more-count").hidden = !more;
+  $("more-count").textContent = String(more);
   state.filtered = state.listings.filter((l) => {
     if (!matches(l, f)) return false;
     l._c = f.commute ? commuteFor(l, f.commute) : null;
@@ -329,6 +333,118 @@ function renderSaved() {
   $("saved").replaceChildren(el("option", { value: "", textContent: state.searches.length ? "Choose…" : "None yet" }),
     ...state.searches.map((s) => el("option", { value: s.id, textContent: s.name })));
   syncSavedSelect();
+  if ($("profile-dialog").open) renderProfile();
+}
+
+// ---- profile ------------------------------------------------------------------
+
+const BED_LABEL = (b) => (Number(b) === 0 ? "studio" : Number(b) === 4 ? "4+ bd" : `${b} bd`);
+
+/** One-line description of a saved search's filters. */
+function filterSummary(f) {
+  const parts = [];
+  if (f.hoods?.length) parts.push(f.hoods.length > 2 ? `${f.hoods.slice(0, 2).join(", ")} +${f.hoods.length - 2}` : f.hoods.join(", "));
+  if (f.beds?.length) parts.push(f.beds.map(BED_LABEL).join(" or "));
+  if (f.min != null && f.max != null) parts.push(`${money(f.min)}–${money(f.max)}`);
+  else if (f.max != null) parts.push(`up to ${money(f.max)}`);
+  else if (f.min != null) parts.push(`from ${money(f.min)}`);
+  if (f.commute) parts.push(`≤ ${f.commute.minutes} min to ${placeName(f.commute)}`);
+  if (f.lines?.length) parts.push(`near ${f.lines.join("/")}`);
+  if (f.walk) parts.push(`≤ ${f.walk} min walk to subway`);
+  if (f.features?.length) parts.push(f.features.map((x) => FEATURES[x]?.toLowerCase() || x).join(", "));
+  if (f.reason?.length) parts.push(f.reason.map((r) => LABELS[r]?.toLowerCase() || r).join(" or "));
+  if (f.delisted) parts.push("incl. delisted");
+  if (f.unflagged) parts.push("incl. unflagged");
+  return parts.join(" · ") || "All rent-stabilized listings";
+}
+
+function prefsSummary(p) {
+  if (!hasPrefs(p)) return "Not set yet. Add your budget, bedrooms, commute and must-haves to get match scores.";
+  const parts = [];
+  if (p.maxPrice) parts.push(`up to ${money(p.maxPrice)}`);
+  if (p.beds?.length) parts.push(p.beds.map(BED_LABEL).join(" or "));
+  if (p.hoods?.length) parts.push(p.hoods.join(", "));
+  if (p.near) parts.push(`≤ ${p.near.minutes ?? 30} min to ${placeName(p.near)}`);
+  if (p.must?.length) parts.push(`must have ${p.must.map((x) => FEATURES[x]?.toLowerCase()).join(", ")}`);
+  if (p.nice?.length) parts.push(`nice: ${p.nice.map((x) => FEATURES[x]?.toLowerCase()).join(", ")}`);
+  if (p.confidence === "likely") parts.push("most likely stabilized only");
+  return parts.join(" · ");
+}
+
+const PROVIDERS = { "google.com": "Google", password: "Email and password", "apple.com": "Apple" };
+
+function renderProfile() {
+  const u = state.user;
+  $("pf-email").textContent = u ? (u.email || u.displayName || "—") : "Local preview (not signed in)";
+  $("pf-method").textContent = u ? (u.providerData.map((p) => PROVIDERS[p.providerId] || p.providerId).join(", ") || "—") : "—";
+  $("pf-since").textContent = u?.metadata?.creationTime ? new Date(u.metadata.creationTime).toLocaleDateString("en-US", { dateStyle: "long" }) : "—";
+  $("pf-prefs").textContent = prefsSummary(state.prefs);
+  $("pf-delete").disabled = DEV;
+
+  const list = $("pf-searches");
+  if (!state.searches.length) {
+    list.replaceChildren(el("li", { className: "muted", textContent: "No saved searches yet. Set some filters, then \"Save current search\"." }));
+    return;
+  }
+  list.replaceChildren(...state.searches.map((s) => {
+    const f = normalize(s.filters);
+    const n = state.listings.filter((l) => matches(l, f)).length;
+    const run = el("button", { type: "button", className: "btn small", textContent: "Run" });
+    const rename = el("button", { type: "button", className: "btn ghost small", textContent: "Rename" });
+    const del = el("button", { type: "button", className: "btn ghost small", textContent: "Delete" });
+    const item = el("li", { className: "saved-item" },
+      el("div", { className: "name-row" }, el("span", { className: "name", textContent: s.name }),
+        el("span", { className: "count-now", textContent: `${n.toLocaleString()} now` })),
+      el("div", { className: "summary", textContent: filterSummary(f) }),
+      el("div", { className: "actions" }, run, rename, del));
+    run.addEventListener("click", () => { $("profile-dialog").close(); applyFilters(f); });
+    del.addEventListener("click", async () => {
+      if (!confirm(`Delete "${s.name}"?`)) return;
+      try { await deleteSearch(s.id); } catch (e) { message("pf-msg", e.message, true); }
+    });
+    rename.addEventListener("click", () => {
+      const input = el("input", { value: s.name, maxLength: 80 });
+      input.setAttribute("aria-label", "New name");
+      const save = el("button", { type: "button", className: "btn small", textContent: "Save" });
+      const row = el("div", { className: "actions" }, input, save);
+      item.querySelector(".actions").replaceWith(row);
+      input.focus(); input.select();
+      const done = async () => {
+        const name = input.value.trim().slice(0, 80);
+        if (!name || name === s.name) { renderProfile(); return; }
+        try { await renameSearch(s.id, name); } catch (e) { message("pf-msg", e.message, true); }
+      };
+      save.addEventListener("click", done);
+      input.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); done(); } if (e.key === "Escape") renderProfile(); });
+    });
+    return item;
+  }));
+}
+
+async function deleteAccount() {
+  if (!confirm("Permanently delete your account, preferences and saved searches? This can't be undone.")) return;
+  message("pf-msg", "Deleting…");
+  const { fs, db, auth, a } = state.fb;
+  const uid = state.user.uid;
+  try {
+    const searches = await fs.getDocs(fs.collection(db, "users", uid, "searches"));
+    await Promise.all(searches.docs.map((d) => fs.deleteDoc(d.ref)));
+    await fs.deleteDoc(fs.doc(db, "users", uid, "prefs", "main"));
+    stopListeners();
+    await auth.deleteUser(a.currentUser);
+    $("profile-dialog").close();
+  } catch (e) {
+    message("pf-msg", e.code === "auth/requires-recent-login"
+      ? "For your security, sign out and back in, then delete your account again."
+      : `Couldn't delete: ${e.code || e.message}`, true);
+  }
+}
+
+function wireProfile() {
+  $("open-profile").addEventListener("click", () => { message("pf-msg", ""); renderProfile(); $("profile-dialog").showModal(); });
+  $("pf-edit-prefs").addEventListener("click", () => { $("profile-dialog").close(); $("open-prefs").click(); });
+  $("pf-save-current").addEventListener("click", () => { $("profile-dialog").close(); $("save-search").click(); });
+  $("pf-delete").addEventListener("click", deleteAccount);
 }
 
 // ---- commute filter -----------------------------------------------------------
@@ -689,7 +805,7 @@ function onUser(user) {
     show("verify");
     return;
   }
-  $("who").textContent = user.email || user.displayName || "";
+  $("avatar-initial").textContent = (user.displayName || user.email || "?").trim()[0].toUpperCase();
   show("app");
   ensureMap();
   listenListings();
@@ -734,6 +850,12 @@ async function saveSearch(name) {
     { name, filters: currentFilters(), created_at: fs.serverTimestamp() });
 }
 
+async function renameSearch(id, name) {
+  if (DEV) { const s = state.searches.find((x) => x.id === id); if (s) s.name = name; renderSaved(); return; }
+  const { fs, db } = state.fb;
+  await fs.updateDoc(fs.doc(db, "users", state.user.uid, "searches", id), { name });
+}
+
 async function deleteSearch(id) {
   if (DEV) { state.searches = state.searches.filter((s) => s.id !== id); renderSaved(); return; }
   const { fs, db } = state.fb;
@@ -757,6 +879,7 @@ function ensureMap() {
 
 function wireUi() {
   wirePrefs();
+  wireProfile();
   wireFeed();
   const addHood = () => {
     const input = $("hood-input");
@@ -813,6 +936,12 @@ function wireUi() {
     if (id && confirm("Delete this saved search?")) deleteSearch(id).catch((e) => alert(e.message));
   });
 
+  $("toggle-more").addEventListener("click", () => {
+    const open = $("more-filters").hidden;
+    $("more-filters").hidden = !open;
+    $("toggle-more").setAttribute("aria-expanded", String(open));
+    state.map?.resize();
+  });
   $("toggle-filters").addEventListener("click", () => {
     const open = $("app").classList.toggle("show-filters");
     $("toggle-filters").setAttribute("aria-expanded", String(open));
@@ -834,7 +963,7 @@ async function main() {
   loadStations().then(() => { stationCache.clear(); renderLineToggles(); refresh(); }).catch(() => {});
   if ("serviceWorker" in navigator && !DEV) navigator.serviceWorker.register("/sw.js").catch(() => {});
   if (DEV) {
-    $("who").textContent = "local preview";
+    $("avatar-initial").textContent = "L";
     show("app");
     await ensureMap();
     const data = await (await fetch(CONFIG.devData)).json();
