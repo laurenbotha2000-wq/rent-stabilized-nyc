@@ -219,7 +219,6 @@ pub fn import(con: &mut Connection, listings: &[Map<String, Value>], fallback_se
             let get = |k: &str| l.get(k);
             let list = |k: &str| get(k).filter(|v| v.is_array()).map_or("[]".to_string(), Value::to_string);
             let first_seen = get("first_seen").and_then(Value::as_str).unwrap_or(fallback_seen);
-            let located = get("lat").is_some_and(|v| !v.is_null());
             added += ins.execute(params![
                 sql(get("url")), sql(get("price")), sql(get("beds")), sql(get("baths")), sql(get("sqft")),
                 sql(get("neighborhood")), sql(get("address")), sql(get("likes")), sql(get("time_on_market")),
@@ -231,7 +230,8 @@ pub fn import(con: &mut Connection, listings: &[Map<String, Value>], fallback_se
                 sql(get("delisted_at")),
                 list("reasier_reasons"),
                 sql(get("bbl")), sql(get("lat")), sql(get("lng")), sql(get("geo_bbl")),
-                if located { Some(fallback_seen) } else { None },
+                // already looked up when it was first published; don't retry every run
+                Some(fallback_seen),
                 list("features"),
             ])?;
             for s in get("data").and_then(Value::as_array).into_iter().flatten() {

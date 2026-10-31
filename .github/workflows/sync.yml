@@ -1,12 +1,22 @@
 # Every 5 minutes (GitHub's minimum): sync Reasier, geocode new addresses,
-# and publish changes plus change events (new, price_change, delisted,
-# relisted) to Firestore. Needs a public repo for unlimited minutes.
+# add HPD building records, and publish changes plus change events (new,
+# price_change, delisted, relisted) to Firestore.
+#
+# This is the fallback runner: when the Mac poller (scripts/poll-mac.sh) has
+# checked within the last 4 minutes, it stands down. Every run starts from the
+# published copy in Firestore, so runners never drift apart, and publishing is
+# transactional, so two runners can't record the same change twice.
 # Secrets: FIREBASE_SERVICE_ACCOUNT (JSON key).
 name: sync
 on:
   schedule:
     - cron: "*/5 * * * *"
   workflow_dispatch:
+    inputs:
+      force:
+        description: "Run even if another runner checked recently"
+        type: boolean
+        default: false
 
 concurrency:
   group: sync
@@ -14,10 +24,29 @@ concurrency:
 
 permissions:
   contents: write   # monthly keepalive commit (GitHub pauses idle schedules after 60 days)
-  actions: write    # prune old database caches
 
 jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      skip: ${{ steps.fresh.outputs.skip }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install --prefix scripts --no-audit --no-fund --silent
+      - id: fresh
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          if [ "${{ inputs.force }}" = "true" ]; then echo "skip=false" >> "$GITHUB_OUTPUT"; exit 0; fi
+          node scripts/fresh.mjs | tee /dev/stderr | grep '^skip=' | tail -1 >> "$GITHUB_OUTPUT"
+
   sync:
+    needs: check
+    if: needs.check.outputs.skip != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -46,49 +75,12 @@ jobs:
           node-version: 20
       - run: npm install --prefix scripts --no-audit --no-fund --silent
 
-      # Working database carried between runs (latest cache wins). Firestore
-      # holds the durable copy: if the cache is gone, rebuild from it.
-      - id: db
-        uses: actions/cache/restore@v4
-        with:
-          path: state/reasier.db
-          key: db-${{ github.run_id }}
-          restore-keys: db-
-      - name: Rebuild database from Firestore
-        if: steps.db.outputs.cache-matched-key == ''
+      - name: Sync, add HPD records, publish
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
-          DB_PATH: state/reasier.db
-        run: |
-          mkdir -p state out
-          node scripts/restore.mjs out/published.json
-          bin/reasier-server import out/published.json
-
-      - name: Sync and export
-        env:
-          DB_PATH: state/reasier.db
-          RGB_PATH: data/rgb_buildings.json
-        run: |
-          mkdir -p state out
-          bin/reasier-server export out
-
-      - uses: actions/cache/save@v4
-        if: always() && hashFiles('state/reasier.db') != ''
-        with:
-          path: state/reasier.db
-          key: db-${{ github.run_id }}-${{ github.run_attempt }}
-
-      - name: Publish changes and events to Firestore
-        env:
-          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
-        run: node scripts/upload.mjs out/data.json
-
-      - name: Prune old database caches
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh cache list --key db- --sort created_at --order desc --limit 100 --json id --jq '.[5:][].id' \
-            | xargs -r -n1 gh cache delete || true
+          BIN: bin/reasier-server
+          SYNC_RUNNER: github
+        run: scripts/sync.sh
 
       - name: Keepalive
         run: |

@@ -82,8 +82,11 @@ const db = getFirestore();
 
 const metaRef = db.doc("meta/status");
 const prev = (await metaRef.get()).data();
+// RUNNER names who checked (e.g. "mac", "github"); runners skip when another checked recently
+const runner = process.env.SYNC_RUNNER || "manual";
 if (prev?.version === version) {
-  console.log("unchanged; nothing written");
+  await metaRef.update({ checked_at: FieldValue.serverTimestamp(), checked_by: runner, last_sync: data.last_sync ?? null });
+  console.log("unchanged; recorded the check only");
   process.exit(0);
 }
 
@@ -108,23 +111,35 @@ if (dryRun) {
 }
 
 const now = Timestamp.now();
-const batch = db.batch();
-jsons.forEach((json, i) => batch.set(db.doc(`listings/c${i}`), { version, json }));
-for (let i = jsons.length; i < (prev?.chunks ?? 0); i++) batch.delete(db.doc(`listings/c${i}`));
-// one batch keeps listings, status and events consistent; cap events per run
+// one transaction keeps listings, status and events consistent, and only
+// commits if nobody else published since we read meta/status (two runners
+// can't both record the same change)
 const recorded = events.slice(0, BATCH_LIMIT - jsons.length - (prev?.chunks ?? 0) - 1);
-for (const e of recorded) batch.set(db.collection("events").doc(), { ...e, version, at: now });
-batch.set(metaRef, {
-  version,
-  chunks: jsons.length,
-  count: listings.length,
-  active,
-  updated_at: data.generated_at,
-  last_sync: data.last_sync ?? null,
-  last_events: counts,
-  written_at: FieldValue.serverTimestamp(),
-});
-await batch.commit();
+try {
+  await db.runTransaction(async (t) => {
+    const current = (await t.get(metaRef)).data();
+    if ((current?.version ?? null) !== (prev?.version ?? null)) throw new Error("CONFLICT");
+    jsons.forEach((json, i) => t.set(db.doc(`listings/c${i}`), { version, json }));
+    for (let i = jsons.length; i < (prev?.chunks ?? 0); i++) t.delete(db.doc(`listings/c${i}`));
+    for (const e of recorded) t.set(db.collection("events").doc(), { ...e, version, at: now });
+    t.set(metaRef, {
+      version,
+      chunks: jsons.length,
+      count: listings.length,
+      active,
+      updated_at: data.generated_at,
+      last_sync: data.last_sync ?? null,
+      last_events: counts,
+      written_at: FieldValue.serverTimestamp(),
+      checked_at: FieldValue.serverTimestamp(),
+      checked_by: runner,
+    });
+  });
+} catch (e) {
+  if (e.message !== "CONFLICT") throw e;
+  console.log("another runner published first; skipping (its data is current)");
+  process.exit(0);
+}
 console.log(`published version ${version}${recorded.length < events.length ? ` (${events.length - recorded.length} events not recorded: over the per-run cap)` : ""}`);
 
 // retention: drop old events (best effort; next run continues if this is cut short)

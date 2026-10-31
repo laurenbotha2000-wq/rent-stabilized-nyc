@@ -27,7 +27,8 @@ service cloud.firestore {
         && d.name is string && d.name.size() > 0 && d.name.size() <= 80
         && d.created_at is timestamp
         && f is map
-        && f.keys().hasOnly(['hoods', 'beds', 'min', 'max', 'reason', 'features', 'commute', 'walk', 'lines', 'delisted', 'unflagged'])
+        && f.keys().hasOnly(['hoods', 'beds', 'min', 'max', 'reason', 'features', 'commute', 'walk', 'lines', 'delisted', 'unflagged', 'noHazard'])
+        && (!('noHazard' in f) || f.noHazard is bool)
         && (!('commute' in f) || (f.commute is map
             && f.commute.keys().hasOnly(['label', 'lat', 'lng', 'minutes'])
             && f.commute.label is string && f.commute.label.size() <= 120
@@ -71,21 +72,26 @@ service cloud.firestore {
       allow create, update: if isOwner(uid) && doc == 'main' && validPrefs(request.resource.data);
     }
 
+    // Read limits: listing chunks and status are fetched one known document
+    // at a time (no listing whole collections), and queries must ask for a
+    // small page, so nobody can pull everything in one request.
     match /listings/{chunk} {
-      allow read: if member();
+      allow get: if member() && chunk.matches('c[0-9]{1,2}');
     }
 
     match /meta/{doc} {
-      allow read: if member();
+      allow get: if member() && doc == 'status';
     }
 
     // Change log written by the sync job: new, price_change, delisted, relisted
     match /events/{id} {
-      allow read: if member();
+      allow get: if member();
+      allow list: if member() && request.query.limit <= 50;
     }
 
     match /users/{uid}/searches/{searchId} {
-      allow read, delete: if isOwner(uid);
+      allow get, delete: if isOwner(uid);
+      allow list: if isOwner(uid) && request.query.limit <= 100;
       allow create: if isOwner(uid) && validSearch(request.resource.data)
         && request.resource.data.created_at == request.time;
       allow update: if isOwner(uid) && validSearch(request.resource.data)

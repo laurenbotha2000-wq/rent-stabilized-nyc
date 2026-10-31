@@ -98,6 +98,10 @@ async function newPage(viewport) {
   check("lines are any-of (L, then L or G)", lineL > 0 && lineL < all && lineLG >= lineL, `L ${lineL}, L/G ${lineLG}`);
   await page.click('#lines button[data-v="L"]');
   await page.click('#lines button[data-v="G"]');
+  await page.check("#no-hazard");
+  const noHazard = await count(page);
+  check("no-hazardous-violations filter", noHazard > 0 && noHazard < all, `${noHazard}`);
+  await page.uncheck("#no-hazard");
   check("subway filters reset", (await count(page)) === all);
   await page.screenshot({ path: `${SHOTS}06c-more-filters.png` });
   await page.click("#toggle-more");
@@ -155,6 +159,7 @@ async function newPage(viewport) {
   const detail = await page.textContent("#detail-body");
   check("detail shows nearest subway", /Nearest subway:/.test(detail));
   check("detail shows commute estimate", /Commute to .*min/.test(detail));
+  check("detail shows HPD building record", /Building record \(NYC HPD\)[\s\S]*Open violations[\s\S]*Registered owner/.test(detail));
   check("detail has directions link", await page.locator("#detail-body button.link", { hasText: "Exact directions" }).count() === 1);
   await page.screenshot({ path: `${SHOTS}05-detail.png` });
   await page.keyboard.press("Escape");

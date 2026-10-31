@@ -102,6 +102,7 @@ function currentFilters() {
   const lines = pressed("lines"); if (lines.length) f.lines = lines;
   if ($("delisted").checked) f.delisted = true;
   if ($("unflagged").checked) f.unflagged = true;
+  if ($("no-hazard").checked) f.noHazard = true;
   return f;
 }
 
@@ -117,6 +118,7 @@ function applyFilters(f) {
   $("max").value = f.max ?? "";
   $("delisted").checked = !!f.delisted;
   $("unflagged").checked = !!f.unflagged;
+  $("no-hazard").checked = !!f.noHazard;
   renderChips();
   refresh({ fit: true });
 }
@@ -131,6 +133,7 @@ function matches(l, f) {
   if (f.max !== undefined && !(l.price <= f.max)) return false;
   if (f.reason && !f.reason.some((r) => l.reasons.includes(r))) return false;
   if (f.features && !f.features.every((x) => (l.features || []).includes(x))) return false;
+  if (f.noHazard && (!l.hpd || l.hpd.violations.C > 0)) return false;
   // subway filters need station data; until it loads they don't exclude anything
   if ((f.walk || f.lines) && stationsReady()) {
     if (l.lat == null) return false;
@@ -162,7 +165,7 @@ function refresh({ fit = false } = {}) {
   const personal = hasPrefs(state.prefs);
   $("matches-only-wrap").hidden = !personal;
   // how many filters are set inside the collapsed "More filters" panel
-  const more = ["reason", "features", "walk", "lines", "delisted", "unflagged"].filter((k) => f[k] !== undefined).length;
+  const more = ["reason", "features", "walk", "lines", "delisted", "unflagged", "noHazard"].filter((k) => f[k] !== undefined).length;
   $("more-count").hidden = !more;
   $("more-count").textContent = String(more);
   state.filtered = state.listings.filter((l) => {
@@ -216,6 +219,7 @@ function renderList() {
     const meta = [l.status === "DELISTED" ? `Delisted ${day(l.delisted_at)}` : `Listed ${day(l.first_seen)}`];
     const st = stationFor(l);
     if (st) meta.push(`${st.walk} min walk to ${st.name} (${st.routes.join(" ")})`);
+    if (l.hpd?.violations.C) meta.push(`${l.hpd.violations.C} hazardous HPD violation${l.hpd.violations.C > 1 ? "s" : ""}`);
     if (l._c) {
       card.querySelector(".hood").before(el("div", { className: "commute",
         textContent: `${describe(l._c).split(":")[0]} to ${placeName(state.commuteTo)}` }));
@@ -227,6 +231,28 @@ function renderList() {
     return card;
   }));
   $("more").hidden = state.shown >= n;
+}
+
+/** Building record from NYC HPD (violations, complaints, registered owner and agent). */
+function hpdSection(l) {
+  const h = l.hpd;
+  if (!h) return [];
+  const v = h.violations;
+  const link = el("button", { type: "button", className: "link", textContent: "Full building history (Who Owns What)" });
+  const bbl = l.geo_bbl || l.bbl;
+  link.addEventListener("click", () => openExternal(`https://whoownswhat.justfix.org/en/bbl/${bbl}`));
+  return [
+    el("h3", { textContent: "Building record (NYC HPD)", style: "font-size:14px;margin:14px 0 6px" }),
+    el("dl", { className: "facts" },
+      el("dt", { textContent: "Open violations" }),
+      el("dd", { textContent: v.total
+        ? `${v.total} · ${v.C} immediately hazardous (C), ${v.B} hazardous (B), ${v.A} non-hazardous (A)`
+        : "None open" }),
+      el("dt", { textContent: "Complaints, past year" }), el("dd", { textContent: String(h.complaints_12mo) }),
+      el("dt", { textContent: "Registered owner" }), el("dd", { textContent: h.owner || (h.registered ? "—" : "Not registered with HPD") }),
+      el("dt", { textContent: "Managing agent" }), el("dd", { textContent: h.agent || "—" })),
+    el("p", { className: "compare" }, `As of ${new Date(h.as_of).toLocaleDateString("en-US", { dateStyle: "medium" })}. `, link),
+  ];
 }
 
 function openDetail(url, focusMap = false) {
@@ -270,6 +296,7 @@ function openDetail(url, focusMap = false) {
     badges(l.reasons),
     ...(m ? [el("p", { className: "compare", textContent: `${m.score}% match: ${m.why.join(" · ")}` })] : []),
     ...transit,
+    ...hpdSection(l),
     el("p", { className: "feature-list", textContent: feats.length ? `Mentioned in the listing: ${feats.join(", ")}` : "No amenities mentioned in the listing text." }),
     el("p", { className: "compare", textContent: compare }),
     el("h3", { textContent: "Price history", style: "font-size:14px;margin:14px 0 6px" }),
@@ -324,7 +351,7 @@ function syncSavedSelect() {
 }
 const normalize = (f) => {
   const o = {};
-  for (const k of ["hoods", "beds", "min", "max", "reason", "features", "commute", "walk", "lines", "delisted", "unflagged"]) if (f?.[k] !== undefined) o[k] = f[k];
+  for (const k of ["hoods", "beds", "min", "max", "reason", "features", "commute", "walk", "lines", "delisted", "unflagged", "noHazard"]) if (f?.[k] !== undefined) o[k] = f[k];
   for (const k of ["beds", "reason"]) if (o[k] !== undefined) o[k] = asList(o[k]); // older saves held one value
   return o;
 };
@@ -355,6 +382,7 @@ function filterSummary(f) {
   if (f.reason?.length) parts.push(f.reason.map((r) => LABELS[r]?.toLowerCase() || r).join(" or "));
   if (f.delisted) parts.push("incl. delisted");
   if (f.unflagged) parts.push("incl. unflagged");
+  if (f.noHazard) parts.push("no hazardous violations");
   return parts.join(" · ") || "All rent-stabilized listings";
 }
 
@@ -427,7 +455,7 @@ async function deleteAccount() {
   const { fs, db, auth, a } = state.fb;
   const uid = state.user.uid;
   try {
-    const searches = await fs.getDocs(fs.collection(db, "users", uid, "searches"));
+    const searches = await fs.getDocs(fs.query(fs.collection(db, "users", uid, "searches"), fs.limit(100)));
     await Promise.all(searches.docs.map((d) => fs.deleteDoc(d.ref)));
     await fs.deleteDoc(fs.doc(db, "users", uid, "prefs", "main"));
     stopListeners();
@@ -706,6 +734,15 @@ async function loadFirebase() {
     import(`${SDK}/firebase-firestore.js`),
   ]);
   const app = initializeApp(CONFIG.firebase);
+  // App Check proves requests come from this site (not a script with a copied
+  // login); once enforced in the Firebase console, other callers are refused.
+  if (CONFIG.appCheckSiteKey) {
+    const ac = await import(`${SDK}/firebase-app-check.js`);
+    ac.initializeAppCheck(app, {
+      provider: new ac.ReCaptchaEnterpriseProvider(CONFIG.appCheckSiteKey),
+      isTokenAutoRefreshEnabled: true,
+    });
+  }
   return { auth, fs, a: auth.getAuth(app), db: fs.getFirestore(app) };
 }
 
@@ -832,7 +869,7 @@ function listenListings() {
 
 function listenSearches() {
   const { fs, db } = state.fb;
-  const q = fs.query(fs.collection(db, "users", state.user.uid, "searches"), fs.orderBy("created_at", "desc"));
+  const q = fs.query(fs.collection(db, "users", state.user.uid, "searches"), fs.orderBy("created_at", "desc"), fs.limit(100));
   state.unsub.push(fs.onSnapshot(q, (snap) => {
     state.searches = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     renderSaved();
@@ -910,7 +947,7 @@ function wireUi() {
   }
   let t;
   for (const id of ["min", "max"]) $(id).addEventListener("input", () => { clearTimeout(t); t = setTimeout(refresh, 200); });
-  for (const id of ["delisted", "unflagged", "walk"]) $(id).addEventListener("change", refresh);
+  for (const id of ["delisted", "unflagged", "no-hazard", "walk"]) $(id).addEventListener("change", refresh);
   wireCommuteFilter();
   $("more").addEventListener("click", () => { state.shown += PAGE; renderList(); });
 

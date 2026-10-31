@@ -16,5 +16,8 @@ export const CONFIG = {
   providers: [],
   // Google Maps JavaScript API key (leave empty to use free OpenFreeMap tiles)
   googleMapsKey: "",
+  // reCAPTCHA Enterprise site key registered for App Check (see SETUP.md);
+  // leave empty to run without App Check
+  appCheckSiteKey: "",
   googleMapId: "",
 };
