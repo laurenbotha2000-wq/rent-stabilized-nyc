@@ -27,8 +27,9 @@ service cloud.firestore {
         && d.name is string && d.name.size() > 0 && d.name.size() <= 80
         && d.created_at is timestamp
         && f is map
-        && f.keys().hasOnly(['hoods', 'beds', 'min', 'max', 'reason', 'features', 'commute', 'walk', 'lines', 'delisted', 'unflagged', 'noHazard'])
+        && f.keys().hasOnly(['hoods', 'beds', 'min', 'max', 'reason', 'features', 'commute', 'walk', 'lines', 'delisted', 'unflagged', 'noHazard', 'prewar'])
         && (!('noHazard' in f) || f.noHazard is bool)
+        && (!('prewar' in f) || f.prewar is bool)
         && (!('commute' in f) || (f.commute is map
             && f.commute.keys().hasOnly(['label', 'lat', 'lng', 'minutes'])
             && f.commute.label is string && f.commute.label.size() <= 120

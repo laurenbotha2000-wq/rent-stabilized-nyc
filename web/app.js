@@ -103,6 +103,7 @@ function currentFilters() {
   if ($("delisted").checked) f.delisted = true;
   if ($("unflagged").checked) f.unflagged = true;
   if ($("no-hazard").checked) f.noHazard = true;
+  if ($("prewar").checked) f.prewar = true;
   return f;
 }
 
@@ -119,6 +120,7 @@ function applyFilters(f) {
   $("delisted").checked = !!f.delisted;
   $("unflagged").checked = !!f.unflagged;
   $("no-hazard").checked = !!f.noHazard;
+  $("prewar").checked = !!f.prewar;
   renderChips();
   refresh({ fit: true });
 }
@@ -134,6 +136,7 @@ function matches(l, f) {
   if (f.reason && !f.reason.some((r) => l.reasons.includes(r))) return false;
   if (f.features && !f.features.every((x) => (l.features || []).includes(x))) return false;
   if (f.noHazard && (!l.hpd || l.hpd.violations.C > 0)) return false;
+  if (f.prewar && !isPrewar(l)) return false;
   // subway filters need station data; until it loads they don't exclude anything
   if ((f.walk || f.lines) && stationsReady()) {
     if (l.lat == null) return false;
@@ -165,7 +168,7 @@ function refresh({ fit = false } = {}) {
   const personal = hasPrefs(state.prefs);
   $("matches-only-wrap").hidden = !personal;
   // how many filters are set inside the collapsed "More filters" panel
-  const more = ["reason", "features", "walk", "lines", "delisted", "unflagged", "noHazard"].filter((k) => f[k] !== undefined).length;
+  const more = ["reason", "features", "walk", "lines", "delisted", "unflagged", "noHazard", "prewar"].filter((k) => f[k] !== undefined).length;
   $("more-count").hidden = !more;
   $("more-count").textContent = String(more);
   state.filtered = state.listings.filter((l) => {
@@ -219,6 +222,7 @@ function renderList() {
     const meta = [l.status === "DELISTED" ? `Delisted ${day(l.delisted_at)}` : `Listed ${day(l.first_seen)}`];
     const st = stationFor(l);
     if (st) meta.push(`${st.walk} min walk to ${st.name} (${st.routes.join(" ")})`);
+    if (isPrewar(l)) meta.push(`Prewar (${l.hpd.year_built})`);
     if (l.hpd?.violations.C) meta.push(`${l.hpd.violations.C} hazardous HPD violation${l.hpd.violations.C > 1 ? "s" : ""}`);
     if (l._c) {
       card.querySelector(".hood").before(el("div", { className: "commute",
@@ -233,7 +237,11 @@ function renderList() {
   $("more").hidden = state.shown >= n;
 }
 
-/** Building record from NYC HPD (violations, complaints, registered owner and agent). */
+// NYC listings call buildings from before 1940 "prewar"; PLUTO's year is often an estimate.
+const PREWAR_BEFORE = 1940;
+const isPrewar = (l) => l.hpd?.year_built != null && l.hpd.year_built < PREWAR_BEFORE;
+
+/** Building record from NYC HPD and PLUTO (year built, violations, complaints, registered owner and agent). */
 function hpdSection(l) {
   const h = l.hpd;
   if (!h) return [];
@@ -242,8 +250,10 @@ function hpdSection(l) {
   const bbl = l.geo_bbl || l.bbl;
   link.addEventListener("click", () => openExternal(`https://whoownswhat.justfix.org/en/bbl/${bbl}`));
   return [
-    el("h3", { textContent: "Building record (NYC HPD)", style: "font-size:14px;margin:14px 0 6px" }),
+    el("h3", { textContent: "Building record (NYC HPD, PLUTO)", style: "font-size:14px;margin:14px 0 6px" }),
     el("dl", { className: "facts" },
+      el("dt", { textContent: "Year built" }),
+      el("dd", { textContent: h.year_built ? `${h.year_built}${isPrewar(l) ? " (prewar)" : ""}` : "—" }),
       el("dt", { textContent: "Open violations" }),
       el("dd", { textContent: v.total
         ? `${v.total} · ${v.C} immediately hazardous (C), ${v.B} hazardous (B), ${v.A} non-hazardous (A)`
@@ -351,7 +361,7 @@ function syncSavedSelect() {
 }
 const normalize = (f) => {
   const o = {};
-  for (const k of ["hoods", "beds", "min", "max", "reason", "features", "commute", "walk", "lines", "delisted", "unflagged", "noHazard"]) if (f?.[k] !== undefined) o[k] = f[k];
+  for (const k of ["hoods", "beds", "min", "max", "reason", "features", "commute", "walk", "lines", "delisted", "unflagged", "noHazard", "prewar"]) if (f?.[k] !== undefined) o[k] = f[k];
   for (const k of ["beds", "reason"]) if (o[k] !== undefined) o[k] = asList(o[k]); // older saves held one value
   return o;
 };
@@ -383,6 +393,7 @@ function filterSummary(f) {
   if (f.delisted) parts.push("incl. delisted");
   if (f.unflagged) parts.push("incl. unflagged");
   if (f.noHazard) parts.push("no hazardous violations");
+  if (f.prewar) parts.push("prewar");
   return parts.join(" · ") || "All rent-stabilized listings";
 }
 
@@ -947,7 +958,7 @@ function wireUi() {
   }
   let t;
   for (const id of ["min", "max"]) $(id).addEventListener("input", () => { clearTimeout(t); t = setTimeout(refresh, 200); });
-  for (const id of ["delisted", "unflagged", "no-hazard", "walk"]) $(id).addEventListener("change", refresh);
+  for (const id of ["delisted", "unflagged", "no-hazard", "prewar", "walk"]) $(id).addEventListener("change", refresh);
   wireCommuteFilter();
   $("more").addEventListener("click", () => { state.shown += PAGE; renderList(); });
 
