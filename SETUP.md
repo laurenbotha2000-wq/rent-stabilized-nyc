@@ -91,16 +91,18 @@ Edit the `cron` line in [`.github/workflows/sync.yml`](.github/workflows/sync.ym
 ## Faster polling from your Mac (every 2 minutes)
 
 GitHub checks every 5 minutes and stands down whenever your Mac has checked
-in the last 4 minutes. To turn the Mac poller on:
+in the last 4 minutes. To turn the Mac poller on (or update it after
+changing the sync code):
 
 ```bash
-cp ~/Downloads/reasier-client/scripts/com.lauren.rent-stabilized-sync.plist ~/Library/LaunchAgents/
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.lauren.rent-stabilized-sync.plist
+~/Downloads/reasier-client/scripts/install-mac-poller.sh
 ```
 
-Log: `~/Library/Logs/rent-stabilized-sync.log`. To turn it off:
-`launchctl bootout gui/$(id -u)/com.lauren.rent-stabilized-sync`.
-If macOS asks whether `bash` may access your Downloads folder, allow it.
+macOS doesn't let background jobs read the Downloads folder, so the installer
+copies what the sync needs to `~/Library/Application Support/RentStabilizedSync`
+and runs it from there. It only runs while the Mac is awake; GitHub covers the
+rest. Log: `~/Library/Logs/rent-stabilized-sync.log` (errors in `.err`). To turn
+it off: `scripts/install-mac-poller.sh --remove`.
 
 ## App Check (blocks requests that don't come from your site)
 
