@@ -2,8 +2,9 @@
 # add HPD building records, and publish changes plus change events (new,
 # price_change, delisted, relisted) to Firestore.
 #
-# This is the fallback runner: when the Mac poller (scripts/poll-mac.sh) has
-# checked within the last 4 minutes, it stands down. Every run starts from the
+# This is the fallback runner: when the always-on server
+# (scripts/install-server-poller.sh) or the Mac poller (scripts/poll-mac.sh)
+# has checked within the last 4 minutes, it stands down. Every run starts from the
 # published copy in Firestore, so runners never drift apart, and publishing is
 # transactional, so two runners can't record the same change twice.
 # Secrets: FIREBASE_SERVICE_ACCOUNT (JSON key).

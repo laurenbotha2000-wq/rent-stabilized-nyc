@@ -5,7 +5,7 @@
 # runners can take turns; upload.mjs makes sure only one publishes a change.
 #
 #   BIN=target/release/reasier-server SYNC_RUNNER=mac scripts/sync.sh
-# Needs FIREBASE_SERVICE_ACCOUNT in the environment.
+# Credentials: FIREBASE_SERVICE_ACCOUNT, or the machine's Google identity (scripts/firebase.mjs).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 BIN=${BIN:-target/release/reasier-server}

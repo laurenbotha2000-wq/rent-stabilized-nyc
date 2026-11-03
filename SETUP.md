@@ -88,6 +88,48 @@ Open the site in Safari (iPhone) or Chrome (Android), then choose **Share → Ad
 
 Edit the `cron` line in [`.github/workflows/sync.yml`](.github/workflows/sync.yml). `*/5 * * * *` is every 5 minutes, GitHub's minimum; GitHub may start runs a few minutes late when busy.
 
+## Always-on sync server (every 60 seconds)
+
+A free Google Cloud e2-micro server runs the sync every minute, around the
+clock. GitHub keeps running as the backup and stands down while the server is
+checking. The server has no Firebase key on disk: it signs in as its own
+service account, which may only read and write the database.
+
+1. **Project:** in the [Google Cloud console](https://console.cloud.google.com/projectcreate)
+   create a new project (for example `rent-sync`) and link a billing account.
+   Keep it separate from `rent-stabilized-nyc` so the site stays on the free
+   Firebase plan. Then set a $1 budget alert under **Billing → Budgets & alerts**.
+2. **Service account:** in the new project, **IAM & Admin → Service accounts →
+   Create**, name it `rent-sync`, grant it no roles, and click Done.
+3. **Database access:** switch to the `rent-stabilized-nyc` project, open
+   **IAM → Grant access**, paste the account's email
+   (`rent-sync@<new-project-id>.iam.gserviceaccount.com`) and give it the
+   **Cloud Datastore User** role.
+4. **Server:** back in the new project, **Compute Engine → VM instances →
+   Create instance**:
+   - Region **us-east1**, machine type **e2-micro**
+   - Boot disk: **Ubuntu 24.04 LTS (x86/64)**, disk type **Standard persistent
+     disk**, 30 GB or less (other disk types aren't free)
+   - Security/Identity: service account **rent-sync**, access scopes **Allow
+     full access to all Cloud APIs** (the role above still limits it to the database)
+   - Networking: leave **Allow HTTP/HTTPS traffic** unchecked
+   - Check the monthly estimate on the right before clicking **Create**
+5. **Install:** click **SSH** next to the server and paste:
+
+   ```bash
+   git clone -q --depth 1 https://github.com/laurenbotha2000-wq/rent-stabilized-nyc /tmp/rsn && sudo bash /tmp/rsn/scripts/install-server-poller.sh
+   ```
+
+   The first install builds the sync program (about 15–20 minutes), then syncs
+   every 60 seconds. Run the same command again to update after code changes.
+
+Watch it with `journalctl -u rent-stabilized-sync -f`. Turn it off with
+`sudo bash /opt/rent-stabilized-sync/scripts/install-server-poller.sh --remove`.
+
+On another Linux server (Hetzner, a Raspberry Pi, an old
+PC; Ubuntu or Debian), put a Firebase key at `/etc/rent-stabilized-sync/key.json` before running
+the installer; it stays root-only and systemd hands it to the sync.
+
 ## Faster polling from your Mac (every 2 minutes)
 
 GitHub checks every 5 minutes and stands down whenever your Mac has checked

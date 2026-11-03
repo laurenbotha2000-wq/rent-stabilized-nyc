@@ -8,8 +8,10 @@
 // Writes, in one atomic batch: listings/c0..cN (JSON strings, under Firestore's
 // 1 MiB document limit), meta/status, and one events/{id} per change:
 //   new | price_change | delisted | relisted
-// Nothing is written when the content is unchanged. Events older than
-// EVENT_RETENTION_DAYS are pruned.
+// When the content is unchanged only meta/heartbeat is written (who checked
+// and when). It's a separate document because every open browser listens to
+// meta/status, so touching it on each check would cost a read per viewer.
+// Events older than EVENT_RETENTION_DAYS are pruned.
 import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 
@@ -75,17 +77,18 @@ if (dryRun && !process.env.FIREBASE_SERVICE_ACCOUNT) {
   process.exit(0);
 }
 
-const { initializeApp, cert } = await import("firebase-admin/app");
-const { getFirestore, FieldValue, Timestamp } = await import("firebase-admin/firestore");
-initializeApp({ credential: cert(JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT)) });
-const db = getFirestore();
+const { firestore } = await import("./firebase.mjs");
+const { FieldValue, Timestamp } = await import("firebase-admin/firestore");
+const db = firestore();
 
 const metaRef = db.doc("meta/status");
+const beatRef = db.doc("meta/heartbeat");
 const prev = (await metaRef.get()).data();
-// RUNNER names who checked (e.g. "mac", "github"); runners skip when another checked recently
+// RUNNER names who checked (e.g. "server", "mac", "github"); runners skip when another checked recently
 const runner = process.env.SYNC_RUNNER || "manual";
+const beat = () => ({ checked_at: FieldValue.serverTimestamp(), checked_by: runner, last_sync: data.last_sync ?? null });
 if (prev?.version === version) {
-  await metaRef.update({ checked_at: FieldValue.serverTimestamp(), checked_by: runner, last_sync: data.last_sync ?? null });
+  await beatRef.set(beat());
   console.log("unchanged; recorded the check only");
   process.exit(0);
 }
@@ -131,9 +134,8 @@ try {
       last_sync: data.last_sync ?? null,
       last_events: counts,
       written_at: FieldValue.serverTimestamp(),
-      checked_at: FieldValue.serverTimestamp(),
-      checked_by: runner,
     });
+    t.set(beatRef, beat());
   });
 } catch (e) {
   if (e.message !== "CONFLICT") throw e;
