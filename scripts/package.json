@@ -5,6 +5,7 @@
   "description": "Publishes data.json from `reasier-server export` to Firestore",
   "dependencies": {
     "esbuild": "^0.28.2",
-    "firebase-admin": "^12.7.0"
+    "firebase-admin": "^12.7.0",
+    "web-push": "^3.6.7"
   }
 }

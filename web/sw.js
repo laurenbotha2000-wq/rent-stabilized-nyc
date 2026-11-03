@@ -14,6 +14,28 @@ self.addEventListener("activate", (e) => {
     .then(() => self.clients.claim()));
 });
 
+// Saved-search alerts sent by scripts/notify.mjs: { title, body, url, tag }
+self.addEventListener("push", (e) => {
+  let m = {};
+  try { m = e.data ? e.data.json() : {}; } catch { m = { body: e.data?.text() }; }
+  e.waitUntil(self.registration.showNotification(m.title || "Rent Stabilized NYC", {
+    body: m.body || "New apartments match your saved search.",
+    tag: m.tag, renotify: Boolean(m.tag),
+    icon: "/icons/icon-192.png", badge: "/icons/icon-192.png",
+    data: { url: m.url || "/" },
+  }));
+});
+
+self.addEventListener("notificationclick", (e) => {
+  e.notification.close();
+  const url = new URL(e.notification.data?.url || "/", location.origin);
+  if (url.origin !== location.origin) return; // only ever open this site
+  e.waitUntil(self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((wins) => {
+    const open = wins.find((w) => new URL(w.url).origin === location.origin);
+    return open ? open.focus() : self.clients.openWindow(url.href);
+  }));
+});
+
 // Same-origin shell files: network first, cache as fallback (so updates show up
 // right away, and the app still opens offline).
 self.addEventListener("fetch", (e) => {

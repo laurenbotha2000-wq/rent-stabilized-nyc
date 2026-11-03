@@ -12,7 +12,7 @@
 // and when). It's a separate document because every open browser listens to
 // meta/status, so touching it on each check would cost a read per viewer.
 // Events older than EVENT_RETENTION_DAYS are pruned.
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 
 const KEEP_DELISTED_DAYS = 30;
@@ -24,6 +24,9 @@ const BATCH_LIMIT = 450; // Firestore allows 500 writes per batch
 const DROP = ["last_seen", "geocoded_at", "description"];
 
 const [file, flag] = process.argv.slice(2);
+// the changes this run published, for notify.mjs; empty unless this run won the publish
+const EVENTS_OUT = process.env.EVENTS_OUT;
+if (EVENTS_OUT) writeFileSync(EVENTS_OUT, "[]");
 if (!file) throw new Error("usage: node upload.mjs data.json [--dry-run]");
 const dryRun = flag === "--dry-run";
 const data = JSON.parse(readFileSync(file, "utf8"));
@@ -142,6 +145,7 @@ try {
   console.log("another runner published first; skipping (its data is current)");
   process.exit(0);
 }
+if (EVENTS_OUT) writeFileSync(EVENTS_OUT, JSON.stringify(recorded));
 console.log(`published version ${version}${recorded.length < events.length ? ` (${events.length - recorded.length} events not recorded: over the per-run cap)` : ""}`);
 
 // retention: drop old events (best effort; next run continues if this is cut short)

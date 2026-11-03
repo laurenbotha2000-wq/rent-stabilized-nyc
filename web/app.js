@@ -3,7 +3,8 @@
 import { CONFIG } from "./config.js";
 import { createMap } from "./map.js";
 import { FEATURES, geocode, hasPrefs, match, placeName } from "./prefs.js";
-import { commute, describe, directionsUrl, loadStations, nearby, nearest, stationsReady, allLines } from "./commute.js";
+import { commute, describe, directionsUrl, loadStations, nearest, allLines } from "./commute.js";
+import { asList, commuteFor, isPrewar, matches, normalize } from "./filters.js";
 
 const SDK = "https://www.gstatic.com/firebasejs/11.0.2";
 const $ = (id) => document.getElementById(id);
@@ -24,7 +25,7 @@ const DEV = Boolean(CONFIG.devData) && ["localhost", "127.0.0.1"].includes(locat
 
 const state = {
   listings: [], filtered: [], shown: PAGE, hoods: [], beds: "",
-  user: null, searches: [], map: null, fb: null, unsub: [],
+  user: null, searches: [], map: null, fb: null, unsub: [], alertSettings: null,
   prefs: null, sortTouched: false, events: [],
 };
 
@@ -87,7 +88,6 @@ function setPressed(id, values) {
     b.classList.toggle("on", on);
   }
 }
-const asList = (v) => (v === undefined || v === "" ? [] : Array.isArray(v) ? v : [v]); // older saves held one value
 
 function currentFilters() {
   const f = {};
@@ -124,36 +124,6 @@ function applyFilters(f) {
   renderChips();
   refresh({ fit: true });
 }
-
-function matches(l, f) {
-  if (!f.delisted && l.status !== "ACTIVE") return false;
-  if (!f.unflagged && !l.reasons.length) return false;
-  if (f.hoods && !f.hoods.includes(l.neighborhood)) return false;
-  // bedrooms and reasons: any of the picked values; amenities: all of them
-  if (f.beds && !(l.beds != null && f.beds.some((b) => (Number(b) === 4 ? l.beds >= 4 : l.beds === Number(b))))) return false;
-  if (f.min !== undefined && !(l.price >= f.min)) return false;
-  if (f.max !== undefined && !(l.price <= f.max)) return false;
-  if (f.reason && !f.reason.some((r) => l.reasons.includes(r))) return false;
-  if (f.features && !f.features.every((x) => (l.features || []).includes(x))) return false;
-  if (f.noHazard && (!l.hpd || l.hpd.violations.C > 0)) return false;
-  if (f.prewar && !isPrewar(l)) return false;
-  // subway filters need station data; until it loads they don't exclude anything
-  if ((f.walk || f.lines) && stationsReady()) {
-    if (l.lat == null) return false;
-    const reach = nearby(l, 8, walkMiles(f.walk || 15));
-    if (!reach.length) return false;
-    if (f.lines && !reach.some((s) => s.routes.some((r) => f.lines.includes(r)))) return false;
-  }
-  if (f.commute) {
-    const c = commuteFor(l, f.commute);
-    if (!c || c.minutes > f.commute.minutes) return false;
-  }
-  return true;
-}
-
-/** Miles someone covers walking for `minutes` (same pace as the commute estimates). */
-const walkMiles = (minutes) => (minutes / 60) * 3 / 1.25;
-const commuteFor = (l, to) => (l.lat == null ? null : commute(l, to));
 
 const SORTS = {
   match: (a, b) => (b._m?.score ?? 0) - (a._m?.score ?? 0) || (b.first_seen || "").localeCompare(a.first_seen || ""),
@@ -236,10 +206,6 @@ function renderList() {
   }));
   $("more").hidden = state.shown >= n;
 }
-
-// NYC listings call buildings from before 1940 "prewar"; PLUTO's year is often an estimate.
-const PREWAR_BEFORE = 1940;
-const isPrewar = (l) => l.hpd?.year_built != null && l.hpd.year_built < PREWAR_BEFORE;
 
 /** Building record from NYC HPD and PLUTO (year built, violations, complaints, registered owner and agent). */
 function hpdSection(l) {
@@ -359,13 +325,6 @@ function syncSavedSelect() {
   sel.value = match ? match.id : "";
   $("delete-search").hidden = !match;
 }
-const normalize = (f) => {
-  const o = {};
-  for (const k of ["hoods", "beds", "min", "max", "reason", "features", "commute", "walk", "lines", "delisted", "unflagged", "noHazard", "prewar"]) if (f?.[k] !== undefined) o[k] = f[k];
-  for (const k of ["beds", "reason"]) if (o[k] !== undefined) o[k] = asList(o[k]); // older saves held one value
-  return o;
-};
-
 function renderSaved() {
   $("saved").replaceChildren(el("option", { value: "", textContent: state.searches.length ? "Choose…" : "None yet" }),
     ...state.searches.map((s) => el("option", { value: s.id, textContent: s.name })));
@@ -414,6 +373,7 @@ const PROVIDERS = { "google.com": "Google", password: "Email and password", "app
 
 function renderProfile() {
   const u = state.user;
+  renderAlerts();
   $("pf-email").textContent = u ? (u.email || u.displayName || "—") : "Local preview (not signed in)";
   $("pf-method").textContent = u ? (u.providerData.map((p) => PROVIDERS[p.providerId] || p.providerId).join(", ") || "—") : "—";
   $("pf-since").textContent = u?.metadata?.creationTime ? new Date(u.metadata.creationTime).toLocaleDateString("en-US", { dateStyle: "long" }) : "—";
@@ -429,13 +389,16 @@ function renderProfile() {
     const f = normalize(s.filters);
     const n = state.listings.filter((l) => matches(l, f)).length;
     const run = el("button", { type: "button", className: "btn small", textContent: "Run" });
+    const bell = el("button", { type: "button", className: "btn ghost small bell", textContent: s.alert ? "🔔 Alerts on" : "🔕 Alerts off" });
+    bell.setAttribute("aria-pressed", String(Boolean(s.alert)));
+    bell.addEventListener("click", () => setSearchAlert(s.id, !s.alert).catch((e) => message("pf-msg", e.message, true)));
     const rename = el("button", { type: "button", className: "btn ghost small", textContent: "Rename" });
     const del = el("button", { type: "button", className: "btn ghost small", textContent: "Delete" });
     const item = el("li", { className: "saved-item" },
       el("div", { className: "name-row" }, el("span", { className: "name", textContent: s.name }),
         el("span", { className: "count-now", textContent: `${n.toLocaleString()} now` })),
       el("div", { className: "summary", textContent: filterSummary(f) }),
-      el("div", { className: "actions" }, run, rename, del));
+      el("div", { className: "actions" }, run, bell, rename, del));
     run.addEventListener("click", () => { $("profile-dialog").close(); applyFilters(f); });
     del.addEventListener("click", async () => {
       if (!confirm(`Delete "${s.name}"?`)) return;
@@ -469,6 +432,10 @@ async function deleteAccount() {
     const searches = await fs.getDocs(fs.query(fs.collection(db, "users", uid, "searches"), fs.limit(100)));
     await Promise.all(searches.docs.map((d) => fs.deleteDoc(d.ref)));
     await fs.deleteDoc(fs.doc(db, "users", uid, "prefs", "main"));
+    await forgetThisDevice();
+    const devices = await fs.getDocs(fs.query(fs.collection(db, "users", uid, "devices"), fs.limit(20)));
+    await Promise.all(devices.docs.map((d) => fs.deleteDoc(d.ref)));
+    await fs.deleteDoc(fs.doc(db, "users", uid, "alerts", "settings"));
     stopListeners();
     await auth.deleteUser(a.currentUser);
     $("profile-dialog").close();
@@ -484,6 +451,108 @@ function wireProfile() {
   $("pf-edit-prefs").addEventListener("click", () => { $("profile-dialog").close(); $("open-prefs").click(); });
   $("pf-save-current").addEventListener("click", () => { $("profile-dialog").close(); $("save-search").click(); });
   $("pf-delete").addEventListener("click", deleteAccount);
+  $("pf-push").addEventListener("click", togglePush);
+  $("pf-email-alerts").addEventListener("change", (e) => setEmailAlerts(e.target.checked));
+}
+
+// ---- alerts -----------------------------------------------------------------
+// Push: this browser's Web Push subscription is stored in users/{uid}/devices
+// for scripts/notify.mjs. Email: users/{uid}/alerts/settings, only to the
+// account's own verified address (the security rules check that).
+
+const pushSupported = () => "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+const isIos = /iPhone|iPad|iPod/.test(navigator.userAgent);
+const homeScreenApp = () => matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+const keyBytes = (b64) => Uint8Array.from(atob(b64.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
+async function deviceId(endpoint) {
+  const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(endpoint));
+  return [...new Uint8Array(hash)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+const deviceName = () => {
+  const ua = navigator.userAgent;
+  return /iPhone|iPad/.test(ua) ? "iPhone or iPad" : /Android/.test(ua) ? "Android" : /Mac/.test(ua) ? "Mac" : /Windows/.test(ua) ? "Windows" : "Other";
+};
+async function currentSubscription() {
+  if (DEV || !pushSupported()) return null;
+  const reg = await navigator.serviceWorker.getRegistration();
+  return reg ? reg.pushManager.getSubscription() : null;
+}
+
+async function renderAlerts() {
+  const btn = $("pf-push"), status = $("pf-push-status");
+  btn.hidden = false;
+  btn.disabled = false;
+  if (DEV) { status.textContent = "Not available in the local preview."; btn.disabled = true; }
+  else if (!pushSupported()) {
+    status.textContent = isIos && !homeScreenApp()
+      ? "On iPhone, first add this site to your Home Screen (Share → Add to Home Screen), open it from there, then turn this on."
+      : "This browser doesn't support notifications.";
+    btn.hidden = true;
+  } else if (Notification.permission === "denied") {
+    status.textContent = "Notifications are blocked for this site. Allow them in your browser or phone settings, then come back.";
+    btn.hidden = true;
+  } else {
+    const sub = await currentSubscription();
+    status.textContent = sub ? "On. New matches show up here as notifications." : "Off.";
+    btn.textContent = sub ? "Turn off" : "Turn on";
+    btn.dataset.on = sub ? "1" : "";
+  }
+  const row = $("pf-email-row");
+  row.hidden = DEV || !CONFIG.emailAlerts || !state.user?.email;
+  if (!row.hidden) {
+    $("pf-email-to").textContent = state.user.emailVerified ? `To ${state.user.email}` : "Verify your email address to turn this on.";
+    $("pf-email-alerts").disabled = !state.user.emailVerified;
+    $("pf-email-alerts").checked = Boolean(state.alertSettings?.emailOn);
+  }
+}
+
+async function togglePush() {
+  const btn = $("pf-push");
+  btn.disabled = true;
+  message("pf-msg", "");
+  try {
+    if (btn.dataset.on) await forgetThisDevice();
+    else {
+      if (await Notification.requestPermission() !== "granted") throw new Error("Notifications weren't allowed, so alerts can't show on this device.");
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.getSubscription()
+        || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(CONFIG.vapidPublicKey) });
+      const { endpoint, keys } = sub.toJSON();
+      const { fs, db } = state.fb;
+      await fs.setDoc(fs.doc(db, "users", state.user.uid, "devices", await deviceId(endpoint)),
+        { endpoint, p256dh: keys.p256dh, auth: keys.auth, ua: deviceName(), created_at: fs.serverTimestamp() });
+      if (!state.searches.some((s) => s.alert)) message("pf-msg", "Notifications are on. Turn on 🔔 for a saved search to start getting alerts.");
+    }
+  } catch (e) { message("pf-msg", `Couldn't change notifications: ${e.message}`, true); }
+  await renderAlerts();
+}
+
+/** Stop alerts on this browser: unsubscribe and remove it from the account. */
+async function forgetThisDevice() {
+  const sub = await currentSubscription().catch(() => null);
+  if (!sub) return;
+  if (state.fb && state.user) {
+    const { fs, db } = state.fb;
+    await fs.deleteDoc(fs.doc(db, "users", state.user.uid, "devices", await deviceId(sub.endpoint))).catch(() => {});
+  }
+  await sub.unsubscribe().catch(() => {});
+}
+
+async function setEmailAlerts(on) {
+  const { fs, db } = state.fb;
+  try {
+    await fs.setDoc(fs.doc(db, "users", state.user.uid, "alerts", "settings"),
+      { emailOn: on, email: state.user.email, updated_at: fs.serverTimestamp() });
+  } catch (e) { message("pf-msg", `Couldn't change email alerts: ${e.code || e.message}`, true); }
+}
+
+function listenAlertSettings() {
+  if (!CONFIG.emailAlerts) return;
+  const { fs, db } = state.fb;
+  state.unsub.push(fs.onSnapshot(fs.doc(db, "users", state.user.uid, "alerts", "settings"), (snap) => {
+    state.alertSettings = snap.data() || null;
+    if ($("profile-dialog").open) renderAlerts();
+  }));
 }
 
 // ---- commute filter -----------------------------------------------------------
@@ -818,7 +887,8 @@ function wireAuth({ auth, a }) {
     }
   });
 
-  for (const b of document.querySelectorAll(".sign-out")) b.addEventListener("click", () => auth.signOut(a));
+  // stop this browser's alerts first, so a shared computer doesn't keep getting them
+  for (const b of document.querySelectorAll(".sign-out")) b.addEventListener("click", async () => { await forgetThisDevice(); auth.signOut(a); });
   $("resend").addEventListener("click", async () => {
     try { await auth.sendEmailVerification(a.currentUser); message("verify-msg", "Sent. Check your inbox (and spam)."); }
     catch (e) { message("verify-msg", authError(e), true); }
@@ -843,7 +913,7 @@ function onUser(user) {
   stopListeners();
   state.user = user;
   if (!user) {
-    state.listings = []; state.searches = [];
+    state.listings = []; state.searches = []; state.alertSettings = null;
     show("login");
     return;
   }
@@ -860,6 +930,7 @@ function onUser(user) {
   listenSearches();
   listenPrefs();
   listenEvents();
+  listenAlertSettings();
 }
 
 /** listings are split across a few documents; meta/status says which version is current */
@@ -887,15 +958,21 @@ function listenSearches() {
   }));
 }
 
-async function saveSearch(name) {
+async function saveSearch(name, alert) {
   if (DEV) {
-    state.searches.unshift({ id: String(Date.now()), name, filters: currentFilters() });
+    state.searches.unshift({ id: String(Date.now()), name, alert, filters: currentFilters() });
     renderSaved();
     return;
   }
   const { fs, db } = state.fb;
   await fs.addDoc(fs.collection(db, "users", state.user.uid, "searches"),
-    { name, filters: currentFilters(), created_at: fs.serverTimestamp() });
+    { name, alert, filters: currentFilters(), created_at: fs.serverTimestamp() });
+}
+
+async function setSearchAlert(id, alert) {
+  if (DEV) { const s = state.searches.find((x) => x.id === id); if (s) s.alert = alert; renderSaved(); return; }
+  const { fs, db } = state.fb;
+  await fs.updateDoc(fs.doc(db, "users", state.user.uid, "searches", id), { alert });
 }
 
 async function renameSearch(id, name) {
@@ -976,7 +1053,12 @@ function wireUi() {
     e.preventDefault();
     const name = $("save-name").value.trim().slice(0, 80);
     if (!name) return;
-    try { await saveSearch(name); $("save-dialog").close(); }
+    try {
+      const alert = $("save-alert").checked;
+      await saveSearch(name, alert);
+      $("save-dialog").close();
+      if (alert && !DEV && pushSupported() && !(await currentSubscription())) toast("Saved. Turn on notifications under My profile → Alerts to get alerts on this device.");
+    }
     catch (err) { message("save-msg", `Couldn't save: ${err.code || err.message}`, true); }
   });
   $("delete-search").addEventListener("click", () => {

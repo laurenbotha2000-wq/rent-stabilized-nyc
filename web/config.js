@@ -20,4 +20,8 @@ export const CONFIG = {
   // leave empty to run without App Check
   appCheckSiteKey: "",
   googleMapId: "",
+  // Web Push public key for saved-search alerts (scripts/notify-setup.mjs prints it)
+  vapidPublicKey: "BASWhl4iZr3QN68L6T71HSxytk0AC9D87wZquc1Tgc0H0NvuDBUhWVbplD05GG5E4uTdUmOR4eVCQsJv5bLFdw4",
+  // true once scripts/email-setup.mjs has connected the sending Gmail account
+  emailAlerts: false,
 };

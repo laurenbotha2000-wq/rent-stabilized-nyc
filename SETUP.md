@@ -146,6 +146,32 @@ and runs it from there. It only runs while the Mac is awake; GitHub covers the
 rest. Log: `~/Library/Logs/rent-stabilized-sync.log` (errors in `.err`). To turn
 it off: `scripts/install-mac-poller.sh --remove`.
 
+## Saved-search alerts (push notifications and email)
+
+When a sync publishes new or relisted apartments or price drops,
+`scripts/notify.mjs` checks every saved search with alerts on (🔔) and tells
+its owner: one push notification per saved search on each device they turned
+notifications on for, and one email per person when email alerts are set up.
+It uses the same matching code as the site (`web/filters.js`).
+
+- **Push** works now. People turn it on under **My profile → Alerts**. On an
+  iPhone the site must be added to the Home Screen first (Share → Add to Home
+  Screen, iOS 16.4 or later); Android and computers work in the browser.
+  The push keys were created by `scripts/notify-setup.mjs`; the private key is
+  in the admin-only `config/webpush` document, which no browser can read.
+- **Email** needs a Gmail account to send from (ideally a new one just for
+  alerts, so your personal address isn't shown):
+  1. In the Google Cloud console for `rent-stabilized-nyc`, enable the
+     **Gmail API**, then **APIs & Services → Credentials → Create credentials
+     → OAuth client ID → Desktop app**, and download the JSON.
+  2. Run, and sign in with the sending account when the link opens:
+     ```bash
+     GOOGLE_APPLICATION_CREDENTIALS=firebase-service-account.json node scripts/email-setup.mjs ~/Downloads/client_secret.json "Rent Stabilized NYC <your-alerts-address@gmail.com>"
+     ```
+  3. Set `emailAlerts: true` in `web/config.js` and deploy. Email alerts only
+     ever go to each account's own verified address. Gmail allows about 500
+     emails a day from a regular account.
+
 ## App Check (blocks requests that don't come from your site)
 
 1. Google Cloud console → **Security → reCAPTCHA** → **Create key**: type

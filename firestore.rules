@@ -6,6 +6,9 @@ rules_version = '2';
 //                                   (it uses the Admin SDK, which bypasses rules)
 //   users/{uid}/searches/{id}       only that user, validated shape and size
 //   users/{uid}/prefs/main          only that user, validated shape and size
+//   users/{uid}/devices/{id}        that user's push subscriptions (browser push services only)
+//   users/{uid}/alerts/settings     email alerts, only to the account's own verified address
+//   config/*                        sync keys: no browser access at all (not matched below)
 service cloud.firestore {
   match /databases/{database}/documents {
 
@@ -23,7 +26,8 @@ service cloud.firestore {
 
     function validSearch(d) {
       let f = d.filters;
-      return d.keys().hasOnly(['name', 'filters', 'created_at'])
+      return d.keys().hasOnly(['name', 'filters', 'created_at', 'alert'])
+        && (!('alert' in d) || d.alert is bool)
         && d.name is string && d.name.size() > 0 && d.name.size() <= 80
         && d.created_at is timestamp
         && f is map
@@ -65,6 +69,34 @@ service cloud.firestore {
             && d.near.label is string && d.near.label.size() <= 120
             && d.near.lat is number && d.near.lng is number
             && d.near.minutes is number && d.near.minutes >= 5 && d.near.minutes <= 120));
+    }
+
+    // A push subscription from one of their browsers. The endpoint must be a
+    // browser push service, so the alert sender can't be pointed anywhere else.
+    function validDevice(d) {
+      return d.keys().hasOnly(['endpoint', 'p256dh', 'auth', 'ua', 'created_at'])
+        && d.endpoint is string && d.endpoint.size() <= 1000
+        && d.endpoint.matches('https://(fcm[.]googleapis[.]com|[a-z0-9.-]+[.]push[.]apple[.]com|updates[.]push[.]services[.]mozilla[.]com|[a-z0-9.-]+[.]notify[.]windows[.]com)/.*')
+        && d.p256dh is string && d.p256dh.size() <= 200
+        && d.auth is string && d.auth.size() <= 100
+        && (!('ua' in d) || (d.ua is string && d.ua.size() <= 40))
+        && d.created_at == request.time;
+    }
+
+    match /users/{uid}/devices/{id} {
+      allow get, delete: if isOwner(uid);
+      allow list: if isOwner(uid) && request.query.limit <= 20;
+      allow create, update: if isOwner(uid) && id.matches('[0-9a-f]{64}') && validDevice(request.resource.data);
+    }
+
+    match /users/{uid}/alerts/{doc} {
+      allow get, delete: if isOwner(uid) && doc == 'settings';
+      allow create, update: if isOwner(uid) && doc == 'settings'
+        && request.resource.data.keys().hasOnly(['emailOn', 'email', 'updated_at'])
+        && request.resource.data.emailOn is bool
+        && request.resource.data.email == request.auth.token.email
+        && (request.resource.data.emailOn == false || request.auth.token.email_verified == true)
+        && request.resource.data.updated_at == request.time;
     }
 
     // One private preferences document per person: users/{uid}/prefs/main

@@ -79,6 +79,7 @@ async function newPage(viewport) {
   await page.click('#beds button[data-v="1"]');
   await page.click("#save-search");
   await page.fill("#save-name", "1BR test");
+  check("save dialog offers alerts (on by default)", await page.isChecked("#save-alert"));
   await page.press("#save-name", "Enter");
   await page.waitForTimeout(300);
   check("saved search stored and selected", (await page.$eval("#saved", (s) => s.selectedOptions[0]?.textContent)) === "1BR test");
@@ -181,6 +182,12 @@ async function newPage(viewport) {
   await page.press('#pf-searches input[aria-label="New name"]', "Enter");
   await page.waitForTimeout(200);
   check("rename a saved search", (await page.textContent("#pf-searches")).includes("Renamed search"));
+  const bell = page.locator("#pf-searches .saved-item").first().locator("button.bell");
+  check("saved search shows alerts on", (await bell.getAttribute("aria-pressed")) === "true", await bell.textContent());
+  await bell.click();
+  await page.waitForTimeout(200);
+  check("turn a search's alerts off", (await page.locator("#pf-searches .saved-item").first().locator("button.bell").getAttribute("aria-pressed")) === "false");
+  check("alerts section explains preview", /local preview/.test(await page.textContent("#pf-push-status")));
   await page.screenshot({ path: `${SHOTS}06b-profile.png` });
   await page.locator("#pf-searches .saved-item").first().getByRole("button", { name: "Run" }).click();
   check("run a saved search from profile", !(await page.locator("#profile-dialog[open]").count()) && (await count(page)) > 0);

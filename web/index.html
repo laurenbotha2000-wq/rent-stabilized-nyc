@@ -193,6 +193,7 @@
     <form method="dialog" id="save-form">
       <h2>Save this search</h2>
       <label class="field"><span>Name</span><input id="save-name" maxlength="80" required placeholder="e.g. Bushwick 1BR under $3k"></label>
+      <label class="check-row"><input type="checkbox" id="save-alert" checked> Alert me when new apartments match</label>
       <p class="msg" id="save-msg"></p>
       <div class="row end">
         <button type="button" id="save-cancel" class="btn ghost">Cancel</button>
@@ -225,9 +226,22 @@
       <ul class="saved-list" id="pf-searches"></ul>
     </section>
 
+    <section class="profile-section">
+      <h3>Alerts</h3>
+      <p class="muted small-text">Saved searches with alerts on (🔔) tell you when a new apartment matches or a price drops, usually within minutes of it reaching the site.</p>
+      <div class="alert-row">
+        <div><strong>Notifications on this device</strong><div class="muted small-text" id="pf-push-status"></div></div>
+        <button type="button" class="btn small" id="pf-push">Turn on</button>
+      </div>
+      <label class="alert-row check-row" id="pf-email-row" hidden>
+        <span><strong>Email alerts</strong><span class="muted small-text" id="pf-email-to"></span></span>
+        <input type="checkbox" id="pf-email-alerts">
+      </label>
+    </section>
+
     <section class="profile-section danger">
       <h3>Your data</h3>
-      <p class="muted small-text">Your preferences and saved searches are stored privately in your account and only you can see them. Deleting your account removes them permanently.</p>
+      <p class="muted small-text">Your preferences, saved searches and alert settings are stored privately in your account and only you can see them. Deleting your account removes them permanently.</p>
       <button class="btn ghost small danger-btn" id="pf-delete">Delete my account and data</button>
       <p class="msg" id="pf-msg" role="alert"></p>
     </section>

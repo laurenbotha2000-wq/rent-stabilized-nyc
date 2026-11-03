@@ -97,6 +97,11 @@ button, input, select { font: inherit; color: inherit; }
 .saved-item .name { font-weight: 600; }
 .saved-item .count-now { font-size: 12px; color: var(--accent); white-space: nowrap; }
 .saved-item .summary { font-size: 12px; color: var(--muted); }
+.check-row { display: flex; gap: 8px; align-items: center; font-size: 14px; }
+.alert-row { display: flex; justify-content: space-between; gap: 12px; align-items: center; padding: 8px 0; border-top: 1px solid var(--line); }
+.alert-row strong { font-size: 14px; font-weight: 600; }
+.alert-row .small-text { display: block; }
+.saved-item .bell[aria-pressed="false"] { opacity: .6; }
 .saved-item .actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
 .saved-item input { height: 30px; border: 1px solid var(--line); border-radius: 8px; padding: 0 8px; background: var(--bg); flex: 1; }
 .danger-btn { color: var(--warn); border-color: var(--warn); }

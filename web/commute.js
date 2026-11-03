@@ -22,6 +22,11 @@ let stations = [];
 export async function loadStations() {
   if (stations.length) return stations;
   const { stations: rows } = await (await fetch("/stations.json")).json();
+  return setStations(rows);
+}
+
+/** Use station rows ([name, lat, lng, routes], as in stations.json) directly, e.g. on the server. */
+export function setStations(rows) {
   stations = rows.map(([name, lat, lng, routes]) => ({ name, lat, lng, routes }));
   nearbyCache.clear();
   commuteCache.clear();

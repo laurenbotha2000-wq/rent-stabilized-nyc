@@ -16,4 +16,6 @@ rm -f state/work.db state/work.db-wal state/work.db-shm
 DB_PATH=state/work.db "$BIN" import out/published.json
 DB_PATH=state/work.db RGB_PATH=data/rgb_buildings.json "$BIN" export out
 "$NODE" scripts/hpd.mjs out/data.json out/published.json
-"$NODE" scripts/upload.mjs out/data.json
+EVENTS_OUT=out/events.json "$NODE" scripts/upload.mjs out/data.json
+# alerts are best effort: a failure here never fails the sync
+"$NODE" scripts/notify.mjs out/events.json out/data.json || echo "alerts failed (sync itself succeeded)"
