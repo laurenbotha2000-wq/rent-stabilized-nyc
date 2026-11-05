@@ -1474,7 +1474,7 @@ function listenListings() {
   state.dataUnsub.push(fs.onSnapshot(fs.doc(db, "meta", "heartbeat"), (snap) => {
     const t = snap.data()?.checked_at;
     state.checkedAt = t?.toDate ? t.toDate().toISOString() : null;
-    renderStatus();
+    if (state.meta) renderStatus(); // the listings themselves may still be loading
   }, () => {}));
 }
 
