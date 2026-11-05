@@ -48,17 +48,24 @@ function buildings(list) {
  *   "separate" — one per apartment; units in the same building fan out in a small ring
  *   "building" — one per building, numbered when it has several apartments
  */
-function dots(list, mode) {
+/**
+ * Map dots. "separate" fans a building's apartments out around it in a sunflower
+ * pattern measured in screen pixels (`degPerPx` = degrees of longitude per pixel at
+ * the current zoom), so the dots never pile on top of each other at any zoom.
+ */
+const SPACING_PX = 10; // dot radius 7 + ring, with a little air between dots
+const GOLDEN = Math.PI * (3 - Math.sqrt(5));
+function dots(list, mode, degPerPx) {
   const bs = buildings(list);
-  if (mode !== "separate") return bs;
+  if (mode !== "separate" || !degPerPx) return bs;
   return bs.flatMap((b) => {
     const n = b.units.length;
     if (n === 1) return [b];
-    const r = 0.00009 * (1 + n / 10); // about 10 m, a bit more for big buildings
     const k = Math.cos((b.lat * Math.PI) / 180);
     return b.units.map((l, i) => {
-      const a = (2 * Math.PI * i) / n;
-      return { lat: b.lat + r * Math.sin(a), lng: b.lng + (r * Math.cos(a)) / k, units: [l], cat: category(l) };
+      const r = SPACING_PX * Math.sqrt(i + 0.6) * degPerPx;
+      const a = i * GOLDEN;
+      return { lat: b.lat + r * k * Math.sin(a), lng: b.lng + r * Math.cos(a), units: [l], cat: category(l) };
     });
   });
 }
@@ -116,16 +123,22 @@ async function googleMap(el, { googleKey, googleMapId, onSelect, onSelectBuildin
   });
   const clusterer = new markerClusterer.MarkerClusterer({ map, markers: [],
     algorithm: new markerClusterer.SuperClusterAlgorithm({ maxZoom: CLUSTER_MAX_ZOOM, radius: 50 }) });
-  let last = [], plain = [];
+  let last = [], plain = [], zoomNow = map.getZoom();
+  // apartment spacing is in pixels, so redraw when the zoom level changes
+  map.addListener("zoom_changed", () => {
+    if (map.getZoom() === zoomNow) return;
+    zoomNow = map.getZoom();
+    if (grouping === "separate" && last.length) api.setListings(last);
+  });
 
-  return {
+  const api = {
     setListings(list) {
       last = list;
       clusterer.clearMarkers();
       for (const m of plain) m.map = null;
       plain = [];
       const made = [];
-      for (const b of dots(list, grouping)) {
+      for (const b of dots(list, grouping, 360 / (256 * 2 ** (map.getZoom() ?? 11)))) {
         const n = b.units.length;
         const pin = new PinElement({ background: css(b.cat), borderColor: "#ffffff", glyphColor: "#1b1713",
           glyph: n > 1 ? String(n) : undefined, scale: n > 1 ? 1.1 : 0.9 });
@@ -160,6 +173,7 @@ async function googleMap(el, { googleKey, googleMapId, onSelect, onSelectBuildin
     },
     resize() { /* Google Maps tracks its container */ },
   };
+  return api;
 }
 
 // ---- MapLibre + OpenFreeMap --------------------------------------------
@@ -264,13 +278,21 @@ async function maplibreMap(el, { onSelect, onSelectBuilding, onMove, grouping = 
   };
   map.on("moveend", moved);
   moved();
+  // apartment spacing is in pixels, so redraw as the zoom changes (every quarter level)
+  let zoomStep = Math.round(map.getZoom() * 4);
+  map.on("zoom", () => {
+    const z = Math.round(map.getZoom() * 4);
+    if (z === zoomStep) return;
+    zoomStep = z;
+    if (grouping === "separate" && last.length) api.setListings(last);
+  });
 
-  return {
+  const api = {
     setListings(list) {
       last = list;
       data = {
         type: "FeatureCollection",
-        features: dots(list, grouping).map((b) => ({
+        features: dots(list, grouping, 360 / (512 * 2 ** map.getZoom())).map((b) => ({
           type: "Feature",
           geometry: { type: "Point", coordinates: [b.lng, b.lat] },
           properties: { urls: JSON.stringify(b.units.map((l) => l.url)), n: b.units.length, cat: b.cat },
@@ -305,4 +327,5 @@ async function maplibreMap(el, { onSelect, onSelectBuilding, onMove, grouping = 
     },
     resize() { map.resize(); },
   };
+  return api;
 }
