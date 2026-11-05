@@ -60,7 +60,8 @@ fi
 
 mkdir -p "$DIR/state" "$DIR/out"
 chown -R root:root "$DIR"
-chown rentsync:rentsync "$DIR/state" "$DIR/out"
+# after the line above, so files from earlier runs stay writable by the sync on reinstall
+chown -R rentsync:rentsync "$DIR/state" "$DIR/out"
 
 cred=""
 if [ -f "$KEY" ]; then
