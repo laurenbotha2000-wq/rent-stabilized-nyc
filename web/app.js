@@ -1,7 +1,7 @@
-// Rent Stabilized NYC (hosted): sign-in gate, live listings from Firestore,
-// map + list with filters, and per-user saved searches.
+// Rent Stabilized NYC (hosted): live listings from Firestore for anyone,
+// map + list with filters; an account adds saved searches, preferences and alerts.
 import { CONFIG } from "./config.js";
-import { createMap } from "./map.js";
+import { buildingKey, createMap } from "./map.js";
 import { FEATURES, geocode, hasPrefs, match, placeName } from "./prefs.js";
 import { commute, describe, directionsUrl, loadStations, nearest, allLines } from "./commute.js";
 import { asList, commuteFor, isPrewar, matches, normalize } from "./filters.js";
@@ -26,8 +26,9 @@ const DEV = Boolean(CONFIG.devData) && ["localhost", "127.0.0.1"].includes(locat
 const state = {
   listings: [], filtered: [], shown: PAGE, hoods: [], beds: "",
   user: null, searches: [], map: null, fb: null, unsub: [], alertSettings: null,
-  prefs: null, sortTouched: false, events: [],
+  prefs: null, sortTouched: false, events: [], dataUnsub: [], bounds: null,
 };
+
 
 // localStorage can throw (storage blocked, some embedded browsers); treat it as optional
 const store = {
@@ -35,6 +36,17 @@ const store = {
   set(k, v) { try { localStorage.setItem(k, v); } catch { /* not persisted */ } },
   remove(k) { try { localStorage.removeItem(k); } catch { /* not persisted */ } },
 };
+
+// ---- viewed listings (this device only) -------------------------------------
+
+const VIEWED_MAX = 3000;
+const viewed = new Set((() => { try { return JSON.parse(store.get("viewed") || "[]"); } catch { return []; } })());
+function markViewed(url) {
+  if (viewed.has(url)) return;
+  viewed.add(url);
+  const all = [...viewed];
+  store.set("viewed", JSON.stringify(all.slice(-VIEWED_MAX)));
+}
 
 // ---- screens --------------------------------------------------------------
 
@@ -104,6 +116,7 @@ function currentFilters() {
   if ($("unflagged").checked) f.unflagged = true;
   if ($("no-hazard").checked) f.noHazard = true;
   if ($("prewar").checked) f.prewar = true;
+  if ($("days").value) f.days = Number($("days").value);
   return f;
 }
 
@@ -121,6 +134,7 @@ function applyFilters(f) {
   $("unflagged").checked = !!f.unflagged;
   $("no-hazard").checked = !!f.noHazard;
   $("prewar").checked = !!f.prewar;
+  $("days").value = f.days ? String(f.days) : "";
   renderChips();
   refresh({ fit: true });
 }
@@ -145,6 +159,7 @@ function refresh({ fit = false } = {}) {
     if (!matches(l, f)) return false;
     l._c = f.commute ? commuteFor(l, f.commute) : null;
     l._m = personal ? match(l, state.prefs) : null;
+    if ($("hide-viewed").checked && viewed.has(l.url)) return false;
     return !(personal && $("matches-only").checked && !l._m.ok);
   });
   $("sort-commute").hidden = !f.commute;
@@ -161,50 +176,66 @@ function refresh({ fit = false } = {}) {
 
 // ---- rendering ------------------------------------------------------------
 
+const inBounds = (l, b) => l.lat != null && l.lat >= b.south && l.lat <= b.north
+  && (b.west <= b.east ? l.lng >= b.west && l.lng <= b.east : l.lng >= b.west || l.lng <= b.east);
+
+/** The list follows the map: only what's in the current map area, when that's on. */
+function listed() {
+  const b = $("in-view").checked && state.bounds;
+  return b ? state.filtered.filter((l) => inBounds(l, b)) : state.filtered;
+}
+
 function renderList() {
   const list = $("list");
-  const n = state.filtered.length;
+  const shown = listed();
+  const n = shown.length, total = state.filtered.length;
   const mapped = state.filtered.filter((l) => l.lat != null).length;
-  $("summary").textContent = n
-    ? `${n.toLocaleString()} apartments${mapped < n ? ` · ${n - mapped} not on the map` : ""}`
-    : "";
+  $("viewed-count").textContent = viewed.size ? `(${viewed.size.toLocaleString()})` : "";
+  $("summary").textContent = shown !== state.filtered && total
+    ? `${n.toLocaleString()} in this map area · ${total.toLocaleString()} total`
+    : total ? `${total.toLocaleString()} apartments${mapped < total ? ` · ${total - mapped} not on the map` : ""}` : "";
   if (!n) {
-    list.replaceChildren(el("div", { className: "empty", textContent: state.listings.length ? "No apartments match these filters." : "No data yet." }));
+    list.replaceChildren(el("div", { className: "empty", textContent: !state.listings.length ? "No data yet."
+      : total ? "Nothing in this map area. Zoom out or move the map." : "No apartments match these filters." }));
     $("more").hidden = true;
     return;
   }
-  const tpl = $("card-tpl").content.firstElementChild;
-  list.replaceChildren(...state.filtered.slice(0, state.shown).map((l) => {
-    const card = tpl.cloneNode(true);
-    card.querySelector(".price").textContent = money(l.price);
-    card.querySelector(".layout").textContent = layout(l);
-    card.querySelector(".hood").textContent = l.neighborhood || "";
-    card.querySelector(".addr").textContent = l.address || "";
-    card.querySelector(".badges").replaceWith(badges(l.reasons));
-    if (l._m) {
-      const m = card.querySelector(".match");
-      m.hidden = false;
-      const s = m.querySelector(".match-score");
-      s.textContent = `${l._m.score}% match`;
-      s.classList.toggle("low", l._m.score < 60);
-      m.querySelector(".match-why").textContent = l._m.why.join(" · ");
-    }
-    const meta = [l.status === "DELISTED" ? `Delisted ${day(l.delisted_at)}` : `Listed ${day(l.first_seen)}`];
-    const st = stationFor(l);
-    if (st) meta.push(`${st.walk} min walk to ${st.name} (${st.routes.join(" ")})`);
-    if (isPrewar(l)) meta.push(`Prewar (${l.hpd.year_built})`);
-    if (l.hpd?.violations.C) meta.push(`${l.hpd.violations.C} hazardous HPD violation${l.hpd.violations.C > 1 ? "s" : ""}`);
-    if (l._c) {
-      card.querySelector(".hood").before(el("div", { className: "commute",
-        textContent: `${describe(l._c).split(":")[0]} to ${placeName(state.commuteTo)}` }));
-    }
-    if (l.status === "DELISTED") card.classList.add("gone");
-    card.querySelector(".meta").textContent = meta.join(" · ");
-    card.addEventListener("click", () => openDetail(l.url, true));
-    card.addEventListener("keydown", (e) => { if (e.key === "Enter") openDetail(l.url, true); });
-    return card;
-  }));
+  list.replaceChildren(...shown.slice(0, state.shown).map((l) => card(l, () => openDetail(l.url, true))));
   $("more").hidden = state.shown >= n;
+}
+
+/** One apartment as a card; `onOpen` runs on click or Enter. */
+function card(l, onOpen) {
+  const tpl = $("card-tpl").content.firstElementChild;
+  const c = tpl.cloneNode(true);
+  c.querySelector(".price").textContent = money(l.price);
+  c.querySelector(".layout").textContent = layout(l);
+  c.querySelector(".hood").textContent = l.neighborhood || "";
+  c.querySelector(".addr").textContent = l.address || "";
+  c.querySelector(".badges").replaceWith(badges(l.reasons));
+  if (l._m) {
+    const m = c.querySelector(".match");
+    m.hidden = false;
+    const s = m.querySelector(".match-score");
+    s.textContent = `${l._m.score}% match`;
+    s.classList.toggle("low", l._m.score < 60);
+    m.querySelector(".match-why").textContent = l._m.why.join(" · ");
+  }
+  const meta = [l.status === "DELISTED" ? `Delisted ${day(l.delisted_at)}` : `Listed ${day(l.first_seen)}`];
+  const st = stationFor(l);
+  if (st) meta.push(`${st.walk} min walk to ${st.name} (${st.routes.join(" ")})`);
+  if (isPrewar(l)) meta.push(`Prewar (${l.hpd.year_built})`);
+  if (l.hpd?.violations.C) meta.push(`${l.hpd.violations.C} hazardous HPD violation${l.hpd.violations.C > 1 ? "s" : ""}`);
+  if (l._c) {
+    c.querySelector(".hood").before(el("div", { className: "commute",
+      textContent: `${describe(l._c).split(":")[0]} to ${placeName(state.commuteTo)}` }));
+  }
+  if (l.status === "DELISTED") c.classList.add("gone");
+  if (viewed.has(l.url)) { c.classList.add("viewed"); c.querySelector(".seen").hidden = false; }
+  c.querySelector(".meta").textContent = meta.join(" · ");
+  c.addEventListener("click", onOpen);
+  c.addEventListener("keydown", (e) => { if (e.key === "Enter") onOpen(); });
+  return c;
 }
 
 /** Building record from NYC HPD and PLUTO (year built, violations, complaints, registered owner and agent). */
@@ -231,10 +262,22 @@ function hpdSection(l) {
   ];
 }
 
-function openDetail(url, focusMap = false) {
+/** Other units in the same building (within the current filters). */
+const sameBuilding = (l) => (l.lat == null ? [] : state.filtered.filter((x) => x.lat != null && buildingKey(x) === buildingKey(l)));
+
+function openDetail(url, focusMap = false, fromBuilding = null) {
   const l = state.listings.find((x) => x.url === url);
   if (!l) return;
   if (focusMap) state.map?.focus(l);
+  markViewed(l.url);
+  const units = sameBuilding(l);
+  const back = [];
+  if (fromBuilding || units.length > 1) {
+    const b = el("button", { type: "button", className: "link back-link",
+      textContent: fromBuilding ? `← All ${fromBuilding.length} apartments in this building` : `See all ${units.length} apartments in this building` });
+    b.addEventListener("click", () => openBuilding(fromBuilding || units.map((x) => x.url)));
+    back.push(el("div", {}, b));
+  }
   const open = el("button", { className: "btn", textContent: "View listing on StreetEasy" });
   open.addEventListener("click", () => openExternal(l.url));
   const hist = el("table", { className: "hist" });
@@ -266,6 +309,7 @@ function openDetail(url, focusMap = false) {
     transit.push(el("p", { className: "feature-list" }, `Commute to ${placeName(near)}: ${describe(c)} (estimate) · `, dir));
   }
   $("detail-body").replaceChildren(
+    ...back,
     el("div", { className: "detail-head" },
       el("h2", { textContent: `${money(l.price)} · ${l.neighborhood || ""}` }), open),
     el("div", { className: "addr", textContent: [l.address, layout(l)].filter(Boolean).join(" · ") }),
@@ -279,8 +323,36 @@ function openDetail(url, focusMap = false) {
     hist,
     el("p", { className: "compare", textContent: "Always confirm rent-stabilization status with the landlord or NYS HCR." }),
   );
-  $("detail").showModal();
+  openSheet("detail");
+  refreshViewed();
 }
+
+/** Several apartments in one building: list them, cheapest first. */
+function openBuilding(urls) {
+  const units = urls.map((u) => state.listings.find((l) => l.url === u)).filter(Boolean)
+    .sort((a, b) => (a.price ?? Infinity) - (b.price ?? Infinity));
+  if (!units.length) return;
+  const streets = [...new Set(units.map((l) => l.address?.split(",")[0]).filter(Boolean))];
+  const addr = !streets.length ? "this building" : streets.length === 1 ? streets[0]
+    : `${streets[0]} and ${streets.length - 1} other address${streets.length > 2 ? "es" : ""}`;
+  const unseen = units.filter((l) => !viewed.has(l.url)).length;
+  $("detail-body").replaceChildren(
+    el("h2", { className: "building-head", textContent: `${units.length} apartments at ${addr}` }),
+    el("p", { className: "muted", textContent: [units[0].neighborhood, `${money(units[0].price)}–${money(units.at(-1).price)}`,
+      unseen < units.length ? `${unseen} not viewed yet` : ""].filter(Boolean).join(" · ") }),
+    el("div", { className: "building-list" }, ...units.map((l) => card(l, () => openDetail(l.url, false, urls)))),
+  );
+  openSheet("detail");
+}
+
+function openSheet(id) {
+  const d = $(id);
+  if (!d.open) d.showModal();
+  d.scrollTop = 0;
+}
+
+// after opening an apartment, "Hide viewed" and the Viewed tags catch up once it's closed
+function refreshViewed() { state.viewedDirty = true; }
 
 function renderChips() {
   $("hood-chips").replaceChildren(...state.hoods.map((h) => {
@@ -447,7 +519,8 @@ async function deleteAccount() {
 }
 
 function wireProfile() {
-  $("open-profile").addEventListener("click", () => { message("pf-msg", ""); renderProfile(); $("profile-dialog").showModal(); });
+  $("open-profile").addEventListener("click", () => {
+    if (!needAccount()) return; message("pf-msg", ""); renderProfile(); $("profile-dialog").showModal(); });
   $("pf-edit-prefs").addEventListener("click", () => { $("profile-dialog").close(); $("open-prefs").click(); });
   $("pf-save-current").addEventListener("click", () => { $("profile-dialog").close(); $("save-search").click(); });
   $("pf-delete").addEventListener("click", deleteAccount);
@@ -605,7 +678,7 @@ function wireCommuteFilter() {
 
 const EVENT_LABELS = { new: "New", price_drop: "Price drop", price_up: "Price up", delisted: "Delisted", relisted: "Back" };
 const eventKind = (e) => (e.type === "price_change" ? (e.price < e.old_price ? "price_drop" : "price_up") : e.type);
-const seenKey = () => `events-seen-${state.user?.uid || "dev"}`;
+const seenKey = () => `events-seen-${state.user?.uid || "guest"}`;
 
 function eventText(e) {
   const place = [e.address?.split(",")[0], e.neighborhood].filter(Boolean).join(", ");
@@ -651,7 +724,7 @@ function listenEvents() {
   const { fs, db } = state.fb;
   const q = fs.query(fs.collection(db, "events"), fs.orderBy("at", "desc"), fs.limit(40));
   let first = true;
-  state.unsub.push(fs.onSnapshot(q, (snap) => {
+  state.dataUnsub.push(fs.onSnapshot(q, (snap) => {
     const fresh = first ? [] : snap.docChanges().filter((c) => c.type === "added").map((c) => c.doc.data());
     state.events = snap.docs.map((d) => ({ ...d.data(), atMs: d.data().at?.toMillis?.() ?? Date.now() }));
     renderFeed();
@@ -767,6 +840,7 @@ function wirePrefs() {
   $("p-near-clear").addEventListener("click", () => { draft.near = null; $("p-near").value = ""; renderNear(); });
 
   $("open-prefs").addEventListener("click", () => {
+    if (!needAccount()) return;
     const p = state.prefs || {};
     $("p-max").value = p.maxPrice ?? "";
     setChecked($("p-beds"), p.beds);
@@ -909,35 +983,50 @@ function stopListeners() {
   state.unsub = [];
 }
 
+/** Signed in with a usable account (email accounts must verify first). */
+const signedIn = () => !!state.user && (state.user.emailVerified
+  || !state.user.providerData.some((p) => p.providerId === "password"));
+
+/** Saving and alerts need an account: send guests to sign in. */
+function needAccount() {
+  if (DEV || signedIn()) return true;
+  for (const d of document.querySelectorAll("dialog[open]")) d.close();
+  message("auth-msg", "");
+  show(state.user ? "verify" : "login");
+  return false;
+}
+
 function onUser(user) {
   stopListeners();
   state.user = user;
-  if (!user) {
-    state.listings = []; state.searches = []; state.alertSettings = null;
-    show("login");
+  state.searches = []; state.alertSettings = null;
+  if (!signedIn()) {
+    // browsing works without an account; only the account features are off
+    $("profile-dialog").close();
+    $("sign-in").hidden = false;
+    $("open-profile").hidden = true;
+    setPrefs(null);
+    renderSaved();
+    renderFeed();
+    if (user) { $("verify-email").textContent = user.email; show("verify"); } // just created an email account
+    else show("app");
     return;
   }
-  const password = user.providerData.some((p) => p.providerId === "password");
-  if (password && !user.emailVerified) {
-    $("verify-email").textContent = user.email;
-    show("verify");
-    return;
-  }
+  $("sign-in").hidden = true;
+  $("open-profile").hidden = false;
   $("avatar-initial").textContent = (user.displayName || user.email || "?").trim()[0].toUpperCase();
   show("app");
-  ensureMap();
-  listenListings();
   listenSearches();
   listenPrefs();
-  listenEvents();
   listenAlertSettings();
+  renderFeed();
 }
 
 /** listings are split across a few documents; meta/status says which version is current */
 function listenListings() {
   const { fs, db } = state.fb;
   let version = null;
-  state.unsub.push(fs.onSnapshot(fs.doc(db, "meta", "status"), async (snap) => {
+  state.dataUnsub.push(fs.onSnapshot(fs.doc(db, "meta", "status"), async (snap) => {
     const meta = snap.data();
     if (!meta) { setData([], {}); return; }
     if (meta.version === version) { state.meta = meta; renderStatus(); return; }
@@ -995,6 +1084,8 @@ function ensureMap() {
     googleKey: CONFIG.googleMapsKey,
     googleMapId: CONFIG.googleMapId,
     onSelect: (url) => openDetail(url),
+    onSelectBuilding: (urls) => openBuilding(urls),
+    onMove: (b) => { state.bounds = b; state.shown = PAGE; renderList(); },
   }).then((m) => { state.map = m; m.setListings(state.filtered); return m; })
     .catch((e) => { $("map").textContent = `Map unavailable: ${e.message}`; });
   return mapPromise;
@@ -1044,6 +1135,7 @@ function wireUi() {
     if (s) applyFilters(normalize(s.filters));
   });
   $("save-search").addEventListener("click", () => {
+    if (!needAccount()) return;
     $("save-name").value = "";
     message("save-msg", "");
     $("save-dialog").showModal();
@@ -1085,6 +1177,59 @@ function wireUi() {
     });
   }
   setInterval(renderStatus, 60_000);
+
+  $("days").addEventListener("change", refresh);
+  $("hide-viewed").addEventListener("change", refresh);
+  $("in-view").addEventListener("change", () => { state.shown = PAGE; renderList(); });
+  $("detail").addEventListener("close", () => {
+    if (!state.viewedDirty) return;
+    state.viewedDirty = false;
+    if ($("hide-viewed").checked) refresh(); else renderList();
+  });
+  $("sign-in").addEventListener("click", () => { message("auth-msg", ""); show("login"); });
+  for (const b of document.querySelectorAll(".back-to-map")) b.addEventListener("click", () => show("app"));
+  wireTheme();
+  closeOnOutsideClick();
+}
+
+// Pop-ups close when you click outside them (not the preferences form, so
+// a stray click doesn't throw away edits).
+function closeOnOutsideClick() {
+  for (const d of document.querySelectorAll("dialog.sheet:not(#prefs-dialog)")) {
+    let downOutside = false;
+    const outside = (e) => {
+      const r = d.getBoundingClientRect();
+      return e.target === d && (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom);
+    };
+    d.addEventListener("pointerdown", (e) => { downOutside = outside(e); });
+    d.addEventListener("click", (e) => { if (downOutside && outside(e)) d.close(); downOutside = false; });
+  }
+}
+
+// ---- theme ------------------------------------------------------------------
+
+function wireTheme() {
+  const root = document.documentElement;
+  const render = () => {
+    const mode = root.dataset.theme || "auto";
+    for (const b of $("theme-mode").querySelectorAll("button")) b.classList.toggle("on", b.dataset.v === mode);
+    document.querySelector(`input[name=palette][value=${root.dataset.palette || "default"}]`).checked = true;
+    $("open-theme").textContent = mode === "dark" ? "☾" : mode === "light" ? "☀" : "◐";
+  };
+  const apply = () => { render(); state.map?.setTheme(); };
+  $("open-theme").addEventListener("click", () => { render(); $("theme-dialog").showModal(); });
+  $("theme-mode").addEventListener("click", (e) => {
+    const v = e.target.closest("button")?.dataset.v;
+    if (!v) return;
+    if (v === "auto") { delete root.dataset.theme; store.remove("theme"); } else { root.dataset.theme = v; store.set("theme", v); }
+    apply();
+  });
+  for (const r of document.querySelectorAll("input[name=palette]")) r.addEventListener("change", () => {
+    if (r.value === "default") { delete root.dataset.palette; store.remove("palette"); } else { root.dataset.palette = r.value; store.set("palette", r.value); }
+    apply();
+  });
+  matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { if (!root.dataset.theme) state.map?.setTheme(); });
+  render();
 }
 
 async function main() {
@@ -1107,6 +1252,11 @@ async function main() {
     return;
   }
   state.fb = await loadFirebase();
+  // listings are public: show the map straight away, signed in or not
+  show("app");
+  ensureMap();
+  listenListings();
+  listenEvents();
   wireAuth(state.fb);
 }
 

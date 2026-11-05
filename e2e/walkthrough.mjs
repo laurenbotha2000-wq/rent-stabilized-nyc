@@ -3,7 +3,7 @@
 //   PREVIEW_URL=http://127.0.0.1:8790 LIVE_URL=https://rent-stabilized-nyc.web.app node walkthrough.mjs
 //
 // PREVIEW_URL is the local preview (config with devData: real data, no sign-in).
-// LIVE_URL is only checked up to the sign-in screen.
+// LIVE_URL is checked signed out: the map loads without an account, and saving asks to sign in.
 import { mkdirSync, existsSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { chromium } from "playwright";
@@ -40,8 +40,10 @@ async function newPage(viewport) {
 {
   const page = await newPage({ width: 1280, height: 860 });
   await page.goto(PREVIEW);
-  await page.waitForFunction(() => /apartments/.test(document.querySelector("#summary")?.textContent || ""), null, { timeout: 20000 });
+  await page.waitForFunction(() => /apartments|map area/.test(document.querySelector("#summary")?.textContent || ""), null, { timeout: 20000 });
   await page.waitForTimeout(2500); // map tiles
+  check("compass (north) control", await page.locator(".maplibregl-ctrl-compass").count() === 1);
+  await page.uncheck("#in-view"); // count the whole city below
   const all = await count(page);
   check("listings load", all > 100, `${all} apartments`);
   check("map renders", await page.locator("#map canvas").count() > 0);
@@ -199,6 +201,40 @@ async function newPage(viewport) {
   await page.screenshot({ path: `${SHOTS}06-whats-new.png` });
   await page.keyboard.press("Escape");
 
+  // list follows the map, buildings, viewed, listed-within, outside click, theme
+  await page.check("#in-view");
+  await page.evaluate(() => document.querySelector("#map").scrollIntoView());
+  for (let i = 0; i < 3; i++) await page.click(".maplibregl-ctrl-zoom-in");
+  await page.waitForFunction(() => /map area/.test(document.querySelector("#summary").textContent), null, { timeout: 8000 });
+  const area = await count(page);
+  check("list follows the map when zoomed", area > 0 && area < all, await page.textContent("#summary"));
+  await page.uncheck("#in-view");
+  await page.locator("#list .card").first().click();
+  await page.waitForSelector("#detail[open]");
+  const box = await page.locator("#detail").boundingBox();
+  await page.mouse.click(box.x - 20, box.y + 40);
+  check("clicking outside closes the apartment", !(await page.locator("#detail[open]").count()));
+  check("opened apartment is marked viewed", await page.locator("#list .card.viewed").count() >= 1);
+  const before = await count(page);
+  await page.check("#hide-viewed");
+  const after = await count(page);
+  check("hide viewed", after < before && after > 0, `${after} of ${before}`);
+  await page.uncheck("#hide-viewed");
+  await page.selectOption("#days", "30");
+  const recent = await count(page);
+  check("listed within 30 days", recent <= all, `${recent}`);
+  await page.selectOption("#days", "");
+  await page.click("#open-theme");
+  await page.click('#theme-mode button[data-v="dark"]');
+  await page.check('input[name=palette][value=cb]');
+  await page.waitForTimeout(1500);
+  const theme = await page.evaluate(() => [document.documentElement.dataset.theme, getComputedStyle(document.documentElement).getPropertyValue("--likely").trim()]);
+  check("dark theme + colorblind palette", theme[0] === "dark" && theme[1].toUpperCase() === "#D81B60", theme.join(" "));
+  await page.screenshot({ path: `${SHOTS}06c-dark-cb.png` });
+  await page.click('#theme-mode button[data-v="auto"]');
+  await page.check('input[name=palette][value=default]');
+  await page.keyboard.press("Escape");
+
   check("no console errors (desktop)", page.errors.length === 0, page.errors.slice(0, 3).join(" | "));
   await page.context().close();
 }
@@ -207,7 +243,7 @@ async function newPage(viewport) {
 {
   const page = await newPage({ width: 390, height: 844 });
   await page.goto(PREVIEW);
-  await page.waitForFunction(() => /apartments/.test(document.querySelector("#summary")?.textContent || ""), null, { timeout: 20000 });
+  await page.waitForFunction(() => /apartments|map area/.test(document.querySelector("#summary")?.textContent || ""), null, { timeout: 20000 });
   await page.waitForTimeout(2500);
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
   check("phone: no sideways scrolling", overflow <= 0, `${overflow}px`);
@@ -227,9 +263,12 @@ async function newPage(viewport) {
 {
   const page = await newPage({ width: 1280, height: 860 });
   const res = await page.goto(LIVE);
-  await page.waitForSelector("#login:not([hidden])", { timeout: 20000 });
-  check("live: sign-in screen", res.ok());
-  check("live: Google button", await page.isVisible("#google"));
+  await page.waitForFunction(() => /apartments|map area/.test(document.querySelector("#summary")?.textContent || ""), null, { timeout: 30000 });
+  check("live: map and listings load without signing in", res.ok() && (await count(page)) > 100, await page.textContent("#summary"));
+  await page.click("#save-search");
+  check("live: saving asks you to sign in", await page.isVisible("#login") && await page.isVisible("#google"));
+  await page.click("#login .back-to-map");
+  check("live: back to the map", await page.isVisible("#app"));
   const headers = res.headers();
   check("live: security headers", Boolean(headers["content-security-policy"] && headers["x-frame-options"]));
   await page.screenshot({ path: `${SHOTS}10-live-signin.png` });

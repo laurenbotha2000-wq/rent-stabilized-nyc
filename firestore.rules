@@ -2,7 +2,7 @@ rules_version = '2';
 
 // Everything not matched below is denied.
 //   listings/{chunk}, meta/status,
-//   events/{id}                     read: signed-in users; write: only the sync job
+//   events/{id}                     read: anyone; write: only the sync job
 //                                   (it uses the Admin SDK, which bypasses rules)
 //   users/{uid}/searches/{id}       only that user, validated shape and size
 //   users/{uid}/prefs/main          only that user, validated shape and size
@@ -31,9 +31,10 @@ service cloud.firestore {
         && d.name is string && d.name.size() > 0 && d.name.size() <= 80
         && d.created_at is timestamp
         && f is map
-        && f.keys().hasOnly(['hoods', 'beds', 'min', 'max', 'reason', 'features', 'commute', 'walk', 'lines', 'delisted', 'unflagged', 'noHazard', 'prewar'])
+        && f.keys().hasOnly(['hoods', 'beds', 'min', 'max', 'reason', 'features', 'commute', 'walk', 'lines', 'delisted', 'unflagged', 'noHazard', 'prewar', 'days'])
         && (!('noHazard' in f) || f.noHazard is bool)
         && (!('prewar' in f) || f.prewar is bool)
+        && (!('days' in f) || (f.days is number && f.days >= 1 && f.days <= 90))
         && (!('commute' in f) || (f.commute is map
             && f.commute.keys().hasOnly(['label', 'lat', 'lng', 'minutes'])
             && f.commute.label is string && f.commute.label.size() <= 120
@@ -105,21 +106,21 @@ service cloud.firestore {
       allow create, update: if isOwner(uid) && doc == 'main' && validPrefs(request.resource.data);
     }
 
-    // Read limits: listing chunks and status are fetched one known document
-    // at a time (no listing whole collections), and queries must ask for a
-    // small page, so nobody can pull everything in one request.
+    // Listings are public (browsing needs no account). Read limits: listing
+    // chunks and status are fetched one known document at a time (no listing
+    // whole collections), and queries must ask for a small page.
     match /listings/{chunk} {
-      allow get: if member() && chunk.matches('c[0-9]{1,2}');
+      allow get: if chunk.matches('c[0-9]{1,2}');
     }
 
     match /meta/{doc} {
-      allow get: if member() && doc == 'status';
+      allow get: if doc == 'status';
     }
 
     // Change log written by the sync job: new, price_change, delisted, relisted
     match /events/{id} {
-      allow get: if member();
-      allow list: if member() && request.query.limit <= 50;
+      allow get: if true;
+      allow list: if request.query.limit <= 50;
     }
 
     match /users/{uid}/searches/{searchId} {

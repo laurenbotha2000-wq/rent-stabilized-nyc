@@ -4,7 +4,7 @@ The pieces:
 
 - **Firebase Hosting:** serves the website. Free (Spark plan), no card needed.
 - **Firebase Auth:** sign-in with Google, email + password, and later Apple. Free.
-- **Firestore:** stores the listings, readable only by signed-in users, and each person's saved searches, readable only by them. Free.
+- **Firestore:** stores the listings, readable by anyone (no account needed to browse), and each person's saved searches, readable only by them. Free.
 - **GitHub Actions:** syncs every 5 minutes and redeploys when you push. Free for public repos.
 - **Google Maps:** optional. Without a key the map uses free OpenFreeMap tiles.
 
@@ -24,7 +24,7 @@ Plan for about 30–45 minutes. Do the steps in order.
    - `apiKey`, `projectId`, `appId` exactly as shown.
    - `authDomain`: use **`<project-id>.web.app`** (not `firebaseapp.com`) so sign-in works in Safari and iPhone home-screen apps.
 
-   These values aren't secrets. Your data is protected by the rules in [`firestore.rules`](firestore.rules), which allow only signed-in users to read listings and only you to read your own saved searches.
+   These values aren't secrets. Your data is protected by the rules in [`firestore.rules`](firestore.rules), which let anyone read listings (one document at a time) and only you read your own saved searches.
 
 ## 2. Service account for GitHub
 
@@ -40,7 +40,7 @@ The sync and deploy jobs need a key to write to Firestore and Hosting.
 
 ## 3. GitHub repo
 
-1. Create a **public** repo at <https://github.com/new>, e.g. `rent-stabilized-nyc`. It needs to be public for the free 5-minute sync; the data still requires sign-in.
+1. Create a **public** repo at <https://github.com/new>, e.g. `rent-stabilized-nyc`. It needs to be public for the free 5-minute sync.
 2. In the repo, go to **Settings → Secrets and variables → Actions**:
    - **Secrets → New secret** `FIREBASE_SERVICE_ACCOUNT`: paste the whole JSON key file. Then delete the downloaded file.
    - **Variables → New variable** `FIREBASE_PROJECT_ID`: your project ID.
@@ -78,7 +78,7 @@ Open the site in Safari (iPhone) or Chrome (Android), then choose **Share → Ad
 
 ## How data is protected
 
-- **Listings:** stored only in Firestore and readable only by signed-in users. Email/password accounts must verify their email first. Nothing is downloadable without signing in.
+- **Listings:** stored in Firestore and readable by anyone browsing the site, one document at a time (no bulk listing). Saving searches, preferences and alerts need an account; email/password accounts must verify their email first.
 - **Saved searches:** live at `users/<uid>/searches`. The rules let only that user read, write or delete them, and they check each search's shape and size.
 - **Writes:** only the sync job (with the service account) can change listings. Nothing in the browser can.
 - **What's stored about people:** only what Firebase Auth needs (email or Google/Apple identity) plus their saved searches. No tracking scripts.

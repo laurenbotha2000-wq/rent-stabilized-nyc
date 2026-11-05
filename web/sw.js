@@ -1,7 +1,7 @@
 // Offline app shell. Listing data is never cached here: it comes from
-// Firestore and requires sign-in.
+// Firestore.
 const CACHE = "shell-v4";
-const SHELL = ["/", "/index.html", "/style.css", "/app.js", "/map.js", "/prefs.js", "/commute.js", "/stations.json", "/config.js",
+const SHELL = ["/", "/index.html", "/style.css", "/app.js", "/theme.js", "/map.js", "/prefs.js", "/commute.js", "/stations.json", "/config.js",
   "/manifest.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png"];
 
 self.addEventListener("install", (e) => {

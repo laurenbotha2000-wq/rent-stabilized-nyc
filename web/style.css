@@ -1,28 +1,57 @@
 :root {
-  --bg: #f6f7f6; --panel: #fff; --ink: #1a2321; --muted: #5d6b67; --line: #dde3e1;
-  --accent: #0f766e; --accent-ink: #fff; --chip: #e6f2f0; --warn: #b91c1c;
-  --likely: #c2410c; --building: #6d28d9; --text: #15803d; --none: #8a9692;
-  --b-building: #6d28d9; --b-building-bg: #f1ebfd;
-  --b-price: #b45309; --b-price-bg: #fdf1e3;
-  --b-text: #15803d; --b-text-bg: #e7f6ec;
-  --shadow: 0 1px 2px rgba(16,24,22,.06), 0 2px 8px rgba(16,24,22,.05);
+  /* editorial palette: cream paper, espresso ink, one red accent */
+  --bg: #f4efe4; --panel: #faf7f0; --ink: #2a221b; --muted: #75695b; --line: #d8cebc;
+  --accent: #2a221b; --accent-ink: #f4efe4; --chip: #ebe3d2; --warn: #b3261e; --tag: #c8321e;
+  --likely: #c8321e; --building: #34508f; --text: #5d7a33; --none: #a3967f;
+  --b-building: #34508f; --b-building-bg: transparent;
+  --b-price: #9a5a12; --b-price-bg: transparent;
+  --b-text: #4f6b28; --b-text-bg: transparent;
+  --shadow: none;
+  --serif: "Fraunces", Georgia, "Times New Roman", serif;
+  --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  --sans: "Instrument Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
   color-scheme: light;
 }
+/* Theme: follows the device unless the person picks light or dark (theme.js sets data-theme) */
 @media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0f1514; --panel: #161e1c; --ink: #e5ecea; --muted: #94a3a0; --line: #26312f;
-    --accent: #2dd4bf; --accent-ink: #062320; --chip: #123230; --warn: #fca5a5;
-    --likely: #fb923c; --building: #a78bfa; --text: #4ade80; --none: #6b7a76;
-    --b-building: #c4b5fd; --b-building-bg: #2a2045;
-    --b-price: #fcd34d; --b-price-bg: #3a2c10;
-    --b-text: #86efac; --b-text-bg: #12301d;
+  :root:not([data-theme="light"]) {
+    --bg: #1b1713; --panel: #221d18; --ink: #efe6d6; --muted: #a8998a; --line: #3b332b;
+    --accent: #efe6d6; --accent-ink: #1b1713; --chip: #2f2821; --warn: #f2a194; --tag: #e8553c;
+    --likely: #ef6a4f; --building: #8fa6e6; --text: #a8c873; --none: #7f7364;
+    --b-building: #a9bbef; --b-building-bg: transparent;
+    --b-price: #e8b46a; --b-price-bg: transparent;
+    --b-text: #b6d488; --b-text-bg: transparent;
     --shadow: none; color-scheme: dark;
   }
 }
+:root[data-theme="dark"] {
+  --bg: #1b1713; --panel: #221d18; --ink: #efe6d6; --muted: #a8998a; --line: #3b332b;
+  --accent: #efe6d6; --accent-ink: #1b1713; --chip: #2f2821; --warn: #f2a194; --tag: #e8553c;
+  --likely: #ef6a4f; --building: #8fa6e6; --text: #a8c873; --none: #7f7364;
+  --b-building: #a9bbef; --b-building-bg: transparent;
+  --b-price: #e8b46a; --b-price-bg: transparent;
+  --b-text: #b6d488; --b-text-bg: transparent;
+  --shadow: none; color-scheme: dark;
+}
+/* Colorblind-safe dot palettes from davidmathlogic.com/colorblind: that page's default,
+   IBM Design Library, Okabe & Ito, and Paul Tol. Each maps four of its colors onto the four
+   dot types; the dark variants swap colors that would vanish on the dark map. */
+:root[data-palette="cb"] { --likely: #D81B60; --building: #1E88E5; --text: #FFC107; --none: #004D40; --tag: #D81B60; --b-building: #1565c0; --b-price: #ad1457; --b-text: #7a5a00; }
+:root[data-palette="ibm"] { --likely: #DC267F; --building: #648FFF; --text: #FFB000; --none: #785EF0; --tag: #DC267F; --b-building: #3d63c9; --b-price: #b01e66; --b-text: #7d5600; }
+:root[data-palette="okabe"] { --likely: #D55E00; --building: #0072B2; --text: #009E73; --none: #000000; --tag: #D55E00; --b-building: #0072B2; --b-price: #a84a00; --b-text: #007a59; }
+:root[data-palette="tol"] { --likely: #CC6677; --building: #332288; --text: #117733; --none: #DDCC77; --tag: #882255; --b-building: #332288; --b-price: #882255; --b-text: #117733; }
+@media (prefers-color-scheme: dark) { :root[data-palette="cb"]:not([data-theme="light"]) { --none: #26a69a; --b-building: #64b5f6; --b-price: #f48fb1; --b-text: #FFC107; } }
+:root[data-palette="cb"][data-theme="dark"] { --none: #26a69a; --b-building: #64b5f6; --b-price: #f48fb1; --b-text: #FFC107; }
+@media (prefers-color-scheme: dark) { :root[data-palette="ibm"]:not([data-theme="light"]) { --b-building: #8fb0ff; --b-price: #f06aa8; --b-text: #FFB000; --none: #9d88ff; } }
+:root[data-palette="ibm"][data-theme="dark"] { --b-building: #8fb0ff; --b-price: #f06aa8; --b-text: #FFB000; --none: #9d88ff; }
+@media (prefers-color-scheme: dark) { :root[data-palette="okabe"]:not([data-theme="light"]) { --building: #56B4E9; --none: #CC79A7; --b-building: #56B4E9; --b-price: #E69F00; --b-text: #2fc79a; } }
+:root[data-palette="okabe"][data-theme="dark"] { --building: #56B4E9; --none: #CC79A7; --b-building: #56B4E9; --b-price: #E69F00; --b-text: #2fc79a; }
+@media (prefers-color-scheme: dark) { :root[data-palette="tol"]:not([data-theme="light"]) { --building: #88CCEE; --text: #44AA99; --tag: #AA4499; --b-building: #88CCEE; --b-price: #CC6677; --b-text: #44AA99; } }
+:root[data-palette="tol"][data-theme="dark"] { --building: #88CCEE; --text: #44AA99; --tag: #AA4499; --b-building: #88CCEE; --b-price: #CC6677; --b-text: #44AA99; }
 * { box-sizing: border-box; }
 html, body { height: 100%; }
 body { margin: 0; background: var(--bg); color: var(--ink);
-  font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif; }
+  font: 14px/1.5 var(--sans); }
 button, input, select { font: inherit; color: inherit; }
 [hidden] { display: none !important; }
 
@@ -235,3 +264,58 @@ table.hist th { color: var(--muted); font-weight: 500; }
   .split[data-view="map"] .list-wrap, .split[data-view="list"] .map-wrap { display: none; }
   .list-wrap { border-left: 0; padding-bottom: calc(30px + env(safe-area-inset-bottom)); }
 }
+
+/* viewed listings, building groups, list-follows-map */
+.card.viewed { opacity: .72; }
+.card .seen { font-size: 11px; font-weight: 600; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 0 7px; margin-left: auto; }
+.list-opts { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 0 0 10px; font-size: 13px; color: var(--muted); }
+.list-opts label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.building-head { margin: 0 0 4px; font-size: 18px; }
+.building-list { display: grid; gap: 8px; margin-top: 12px; }
+.back-link { margin-bottom: 10px; }
+#theme-mode { width: max-content; }
+.swatches { display: inline-flex; gap: 3px; vertical-align: middle; margin-left: 4px; }
+.swatches i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+
+/* ---- editorial look: square corners, hairline rules, serif wordmark, typewriter numbers ---- */
+.brand h1 { font-family: var(--serif); font-weight: 500; font-size: 21px; letter-spacing: .01em; font-variation-settings: "opsz" 48; }
+.brand.big h1 { font-size: 28px; }
+.logo { border-radius: 0; width: 14px; height: 18px; }
+.logo::after { inset: 4px 3px 3px; }
+.status, .summary, .sort, .list-opts, .meta, .layout, .muted.small-text { font-family: var(--mono); font-size: 11.5px; letter-spacing: .01em; }
+.field > span, .field > legend, .facts dt, table.hist th, .legend, .sort { text-transform: uppercase; font-family: var(--mono);
+  font-size: 10.5px; letter-spacing: .08em; }
+.btn, .seg button, .tog, .chip, .avatar, .count, .badge, .feed-item .kind, .toast, .card .seen { border-radius: 0; }
+.btn { font-family: var(--mono); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; font-weight: 500; }
+.btn.small { font-size: 11px; }
+.btn.provider { text-transform: none; letter-spacing: 0; font-family: var(--sans); font-size: 14px; }
+.link { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; }
+.field input, .field select, .saved select, .commute-filter input, .commute-filter select, #walk, .sort select,
+.row.wrap input, .row.wrap select, .saved-item input { border-radius: 0; background: transparent; border-color: var(--line); }
+.field input:focus, .field select:focus, .commute-filter input:focus { outline: none; border-color: var(--ink); }
+.seg { border-radius: 0; }
+.seg button { background: transparent; font-family: var(--mono); font-size: 12px; }
+.tog { background: transparent; font-family: var(--mono); font-size: 11.5px; }
+.top, .filters { background: var(--bg); }
+.top { border-bottom: 1px solid var(--ink); }
+.filters { border-bottom: 1px solid var(--line); }
+.list-wrap { border-left: 1px solid var(--ink); background: var(--bg); }
+.list { gap: 0; border-top: 1px solid var(--line); }
+.card { background: transparent; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; box-shadow: none; padding: 14px 4px; }
+.card:hover, .card.active { background: var(--panel); border-color: var(--line); }
+.price { font-family: var(--mono); font-weight: 500; font-size: 17px; letter-spacing: 0; }
+.hood { font-family: var(--serif); font-weight: 500; font-size: 17px; line-height: 1.25; }
+.badge { font-family: var(--mono); font-size: 10px; font-weight: 500; text-transform: uppercase; letter-spacing: .06em;
+  border: 1px solid currentColor; padding: 1px 6px; }
+/* the strongest signal gets the solid red tag */
+.badge.UNEVEN_PRICE { color: #fff; background: var(--tag); border-color: var(--tag); }
+.legend, .auth-card, dialog.sheet, .saved-item, .toast { border-radius: 0; box-shadow: none; }
+.legend { background: var(--bg); border-color: var(--ink); }
+dialog.sheet { border: 1px solid var(--ink); background: var(--bg); }
+dialog::backdrop { background: rgba(27, 23, 19, .45); }
+dialog h2, .building-head, .detail-head h2 { font-family: var(--serif); font-weight: 500; font-size: 22px; letter-spacing: 0; }
+.profile-section h3, dialog h3 { font-family: var(--mono); font-size: 11px !important; text-transform: uppercase; letter-spacing: .08em; font-weight: 500; }
+.auth-card { background: var(--bg); border-color: var(--ink); }
+.toast { background: var(--bg); border-color: var(--ink); box-shadow: none; }
+.view-tabs button { font-family: var(--mono); text-transform: uppercase; font-size: 11px; letter-spacing: .08em; }
+.card .commute, .match-score, .saved-item .count-now, .feed-item .yours { color: var(--tag); }

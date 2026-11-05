@@ -5,12 +5,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Rent Stabilized NYC</title>
   <meta name="description" content="Map of NYC apartments likely to be rent stabilized.">
-  <meta name="theme-color" content="#0f766e">
+  <meta name="theme-color" content="#f4efe4">
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/icons/icon-192.png">
   <link rel="apple-touch-icon" href="/icons/icon-192.png">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <script src="/theme.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500&family=IBM+Plex+Mono:wght@400;500&family=Instrument+Sans:wght@400;500;600&display=swap">
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
@@ -18,7 +22,7 @@
   <section id="login" class="screen center" hidden>
     <div class="auth-card">
       <div class="brand big"><span class="logo" aria-hidden="true"></span><h1>Rent Stabilized NYC</h1></div>
-      <p class="muted">Sign in to see the map of apartments that are likely rent stabilized.</p>
+      <p class="muted">Sign in to save searches, get alerts and keep your preferences. Browsing the map doesn't need an account.</p>
       <button id="google" class="btn wide provider">Continue with Google</button>
       <button id="apple" class="btn wide provider dark" hidden>Continue with Apple</button>
       <div class="or"><span>or</span></div>
@@ -33,6 +37,7 @@
         <button type="button" class="link" id="to-reset">Forgot password?</button>
       </p>
       <p class="msg" id="auth-msg" role="alert"></p>
+      <button type="button" class="btn wide ghost back-to-map">Back to the map</button>
     </div>
   </section>
 
@@ -43,6 +48,7 @@
       <p class="muted">We sent a verification link to <strong id="verify-email"></strong>. Open it, then come back here.</p>
       <button id="verified" class="btn wide">I've verified my email</button>
       <button id="resend" class="btn wide ghost">Resend the link</button>
+      <button class="btn wide ghost back-to-map">Browse the map for now</button>
       <button class="btn wide ghost sign-out">Sign out</button>
       <p class="msg" id="verify-msg" role="alert"></p>
     </div>
@@ -56,6 +62,8 @@
       <div class="account">
         <button class="btn ghost small" id="open-feed">What's new <span class="count" id="feed-count" hidden></span></button>
         <button class="btn small" id="open-prefs">My preferences</button>
+        <button class="btn ghost small" id="open-theme" aria-label="Theme and colors" title="Theme and colors">◐</button>
+        <button class="btn small" id="sign-in" hidden>Sign in</button>
         <button class="avatar" id="open-profile" aria-label="My profile" title="My profile"><span id="avatar-initial">?</span></button>
       </div>
     </header>
@@ -80,6 +88,15 @@
       </fieldset>
       <label class="field small"><span>Min $</span><input id="min" type="number" min="0" step="50" inputmode="numeric"></label>
       <label class="field small"><span>Max $</span><input id="max" type="number" min="0" step="50" inputmode="numeric"></label>
+      <label class="field small"><span>Listed</span>
+        <select id="days" aria-label="Listed within">
+          <option value="">Any time</option>
+          <option value="1">Last 24 hours</option>
+          <option value="3">Last 3 days</option>
+          <option value="7">Last 7 days</option>
+          <option value="14">Last 14 days</option>
+          <option value="30">Last 30 days</option>
+        </select></label>
       <fieldset class="field grow commute-filter">
         <legend>Subway commute to</legend>
         <div class="row">
@@ -173,6 +190,10 @@
             </select>
           </label>
         </div>
+        <div class="list-opts">
+          <label><input type="checkbox" id="in-view" checked> Only what's on the map</label>
+          <label><input type="checkbox" id="hide-viewed"> Hide viewed <span id="viewed-count"></span></label>
+        </div>
         <label class="matches-only" id="matches-only-wrap" hidden>
           <input type="checkbox" id="matches-only" checked> Only show apartments that meet my must-haves
         </label>
@@ -187,6 +208,31 @@
   <dialog id="detail" class="sheet">
     <form method="dialog"><button class="close" aria-label="Close">×</button></form>
     <div id="detail-body"></div>
+  </dialog>
+
+  <dialog id="theme-dialog" class="sheet narrow">
+    <form method="dialog"><button class="close" aria-label="Close">×</button></form>
+    <h2>Theme and colors</h2>
+    <fieldset class="field"><legend>Appearance</legend>
+      <div class="seg" id="theme-mode" role="group" aria-label="Appearance">
+        <button type="button" data-v="auto">Match device</button>
+        <button type="button" data-v="light">Light</button>
+        <button type="button" data-v="dark">Dark</button>
+      </div>
+    </fieldset>
+    <fieldset class="field"><legend>Map dot colors</legend>
+      <label class="radio"><input type="radio" name="palette" value="default"> Standard
+        <span class="swatches"><i style="background:#c8321e"></i><i style="background:#34508f"></i><i style="background:#5d7a33"></i><i style="background:#a3967f"></i></span></label>
+      <label class="radio"><input type="radio" name="palette" value="cb"> Colorblind-safe
+        <span class="swatches"><i style="background:#D81B60"></i><i style="background:#1E88E5"></i><i style="background:#FFC107"></i><i style="background:#004D40"></i></span></label>
+      <label class="radio"><input type="radio" name="palette" value="ibm"> IBM
+        <span class="swatches"><i style="background:#DC267F"></i><i style="background:#648FFF"></i><i style="background:#FFB000"></i><i style="background:#785EF0"></i></span></label>
+      <label class="radio"><input type="radio" name="palette" value="okabe"> Okabe &amp; Ito
+        <span class="swatches"><i style="background:#D55E00"></i><i style="background:#0072B2"></i><i style="background:#009E73"></i><i style="background:#000000"></i></span></label>
+      <label class="radio"><input type="radio" name="palette" value="tol"> Paul Tol
+        <span class="swatches"><i style="background:#CC6677"></i><i style="background:#332288"></i><i style="background:#117733"></i><i style="background:#DDCC77"></i></span></label>
+    </fieldset>
+    <p class="muted small-text">The last four are colorblind-safe palettes from davidmathlogic.com/colorblind. Saved on this device.</p>
   </dialog>
 
   <dialog id="save-dialog" class="sheet narrow">
@@ -325,7 +371,7 @@
   <template id="card-tpl">
     <article class="card" tabindex="0">
       <div class="match" hidden><span class="match-score"></span><span class="match-why"></span></div>
-      <div class="card-head"><span class="price"></span><span class="layout"></span></div>
+      <div class="card-head"><span class="price"></span><span class="layout"></span><span class="seen" hidden>Viewed</span></div>
       <div class="hood"></div>
       <div class="addr"></div>
       <div class="badges"></div>
