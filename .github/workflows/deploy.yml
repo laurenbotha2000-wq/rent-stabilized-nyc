@@ -1,34 +1,85 @@
-# Deploy the website and Firestore security rules whenever they change.
-# Secrets: FIREBASE_SERVICE_ACCOUNT. Variables: FIREBASE_PROJECT_ID.
-name: deploy
-# Manual for now (Actions → deploy → Run workflow). Switch to `push` once the
-# service account has the Firebase Hosting Admin and Firebase Rules Admin roles.
-on:
-  workflow_dispatch:
+# Every push to main: run the checks, and only if they all pass, publish the website
+# and database rules to Firebase, then check the live site. The server (rent-sync VM)
+# updates itself to a commit only after this workflow has passed for it.
+#
+# Uses the repository secret FIREBASE_SERVICE_ACCOUNT (SETUP.md, step 2), same as the sync.
+name: Test and deploy
 
-concurrency:
-  group: deploy
-  cancel-in-progress: true
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
 jobs:
-  deploy:
+  test:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
-      - run: npm install --prefix scripts --no-audit --no-fund --silent
-      - name: Deploy hosting and rules
-        env:
-          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
-          PROJECT: ${{ vars.FIREBASE_PROJECT_ID }}
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Rust sync tests
+        run: cargo test --locked -p reasier-server
+
+      - name: Install script and test tools
         run: |
-          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$RUNNER_TEMP/sa.json"
-          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/sa.json"
-          npx --yes firebase-tools@13 deploy --only hosting,firestore:rules --project "$PROJECT" --non-interactive
-          rm -f "$RUNNER_TEMP/sa.json"
+          npm ci --prefix scripts --no-audit --no-fund
+          npm ci --prefix e2e --no-audit --no-fund
+          npx --prefix e2e playwright install --with-deps chromium
+
+      - name: Syntax check
+        run: for f in web/*.js scripts/*.mjs; do node --check "$f"; done
+
+      - name: Build the site
+        run: node scripts/build-web.mjs
+
+      - name: Walkthrough (local preview)
+        run: |
+          bash e2e/preview.sh 8790 &
+          for i in $(seq 1 30); do curl -sf http://127.0.0.1:8790/ >/dev/null && break; sleep 1; done
+          ONLY=preview node e2e/walkthrough.mjs
+
+      - name: Keep screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: e2e/shots/
+          retention-days: 7
+
+  deploy:
+    needs: test
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+      - name: Build and publish
+        run: |
+          npm ci --prefix scripts --no-audit --no-fund
+          npx --yes firebase-tools@15 deploy --only hosting,firestore:rules --project rent-stabilized-nyc --non-interactive
+
+      - name: Check the live site
+        run: |
+          npm ci --prefix e2e --no-audit --no-fund
+          npx --prefix e2e playwright install --with-deps chromium
+          sleep 20
+          ONLY=live node e2e/walkthrough.mjs

@@ -1,0 +1,30 @@
+# Every 10 minutes: check that the server's sync is still checking in, and push an
+# alert to the site owner's devices if it has stopped for more than 10 minutes.
+name: Sync watchdog
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: watchdog
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+      - run: npm ci --prefix scripts --omit=dev --no-audit --no-fund
+      - run: node scripts/watchdog.mjs

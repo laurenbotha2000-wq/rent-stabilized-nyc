@@ -121,7 +121,10 @@ service account, which may only read and write the database.
    ```
 
    The first install builds the sync program (about 15–20 minutes), then syncs
-   every 60 seconds. Run the same command again to update after code changes.
+   every 60 seconds. After that the server **updates itself**: every 5 minutes it
+   checks GitHub and installs the newest version on `main` whose automated checks
+   passed (see "Automatic deploys" below). Untested versions are never installed.
+   Watch updates with `journalctl -u rent-stabilized-sync-update -f`.
 
 Watch it with `journalctl -u rent-stabilized-sync -f`. Turn it off with
 `sudo bash /opt/rent-stabilized-sync/scripts/install-server-poller.sh --remove`.
@@ -129,6 +132,28 @@ Watch it with `journalctl -u rent-stabilized-sync -f`. Turn it off with
 On another Linux server (Hetzner, a Raspberry Pi, an old
 PC; Ubuntu or Debian), put a Firebase key at `/etc/rent-stabilized-sync/key.json` before running
 the installer; it stays root-only and systemd hands it to the sync.
+
+## Automatic deploys, server updates and alerts
+
+Every push to `main` runs **Test and deploy** (`.github/workflows/deploy.yml`):
+
+1. **Checks:** the Rust sync's tests, a syntax check, the site build, and the full
+   Playwright walkthrough against a preview built from `web/` plus fixed test
+   data in `e2e/fixtures/` (run it yourself with `bash e2e/preview.sh` and
+   `ONLY=preview node e2e/walkthrough.mjs`).
+2. **Publish:** only if every check passed, the site and Firestore rules are
+   deployed, then the live site is checked (`ONLY=live`).
+3. **Server:** the sync server picks up that commit within about 5 minutes
+   (it waits for the commit's `test` check to pass).
+
+**Sync watchdog** (`.github/workflows/watchdog.yml`, every 10 minutes): if the
+server hasn't checked in for over 10 minutes, it pushes "Stoopify sync has
+stopped" to the devices of the accounts listed in Firestore `config/alerts`
+(`{ uids: [...] }`), repeats hourly while it's down, and says when it's back.
+Turn on notifications on your phone in the site's profile screen to receive them.
+GitHub also emails you when a watchdog run fails.
+
+Both use the same `FIREBASE_SERVICE_ACCOUNT` secret as the sync.
 
 ## Faster polling from your Mac (every 2 minutes)
 

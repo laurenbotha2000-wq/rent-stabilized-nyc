@@ -4,12 +4,15 @@
 //
 // PREVIEW_URL is the local preview (config with devData: real data, no sign-in).
 // LIVE_URL is checked signed out: the map loads without an account, and saving asks to sign in.
+// ONLY=preview skips the live site (e.g. before a deploy); ONLY=live checks just the live site
+// (e.g. right after a deploy). `bash e2e/preview.sh` serves the preview from web/ + e2e/fixtures/.
 import { mkdirSync, existsSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { chromium } from "playwright";
 
 const PREVIEW = process.env.PREVIEW_URL || "http://127.0.0.1:8790";
 const LIVE = process.env.LIVE_URL || "https://rent-stabilized-nyc.web.app";
+const ONLY = process.env.ONLY || "";
 const SHOTS = new URL("./shots/", import.meta.url).pathname;
 mkdirSync(SHOTS, { recursive: true });
 
@@ -75,7 +78,7 @@ async function newPage(viewport) {
 }
 
 // ---- desktop, local preview ---------------------------------------------------
-{
+if (ONLY !== "live") {
   const page = await newPage({ width: 1280, height: 860 });
   await page.goto(PREVIEW);
   await page.waitForFunction(() => /apartments|map area/.test(document.querySelector("#summary")?.textContent || ""), null, { timeout: 20000 });
@@ -432,7 +435,7 @@ async function newPage(viewport) {
 }
 
 // ---- phone, local preview ------------------------------------------------------
-{
+if (ONLY !== "live") {
   const page = await newPage({ width: 390, height: 844 });
   await page.goto(PREVIEW);
   await page.waitForFunction(() => /apartments|map area/.test(document.querySelector("#summary")?.textContent || ""), null, { timeout: 20000 });
@@ -454,7 +457,7 @@ async function newPage(viewport) {
 }
 
 // ---- live site (signed out) ----------------------------------------------------
-{
+if (ONLY !== "preview") {
   const page = await newPage({ width: 1280, height: 860 });
   const res = await page.goto(LIVE);
   await page.waitForFunction(() => /apartments|map area/.test(document.querySelector("#summary")?.textContent || ""), null, { timeout: 30000 });

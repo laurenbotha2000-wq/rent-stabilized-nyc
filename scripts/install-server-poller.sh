@@ -5,6 +5,10 @@
 #   sudo bash install-server-poller.sh            install or update
 #   sudo bash install-server-poller.sh --remove   turn it off and delete it
 #
+# After the first install the server keeps itself up to date: every 5 minutes
+# scripts/self-update.sh installs the newest commit on main whose GitHub checks passed.
+# (RSN_REF=<commit> pins a run to that commit; self-update uses it.)
+#
 # Credentials, in order of preference:
 #   - Google Cloud server: none on disk. The server's attached service account
 #     needs the "Cloud Datastore User" role on the rent-stabilized-nyc project.
@@ -21,8 +25,9 @@ KEY=/etc/rent-stabilized-sync/key.json
 UNIT=rent-stabilized-sync
 
 if [ "${1:-}" = "--remove" ]; then
-  systemctl disable --now "$UNIT.timer" 2>/dev/null || true
-  rm -f "/etc/systemd/system/$UNIT.service" "/etc/systemd/system/$UNIT.timer"
+  systemctl disable --now "$UNIT.timer" "$UNIT-update.timer" 2>/dev/null || true
+  rm -f "/etc/systemd/system/$UNIT.service" "/etc/systemd/system/$UNIT.timer" \
+    "/etc/systemd/system/$UNIT-update.service" "/etc/systemd/system/$UNIT-update.timer"
   systemctl daemon-reload
   rm -rf "$DIR"
   userdel rentsync 2>/dev/null || true
@@ -35,8 +40,9 @@ apt-get update -qq
 apt-get install -y -qq git nodejs npm curl ca-certificates build-essential cmake pkg-config >/dev/null
 id rentsync >/dev/null 2>&1 || useradd --system --home-dir "$DIR" --shell /usr/sbin/nologin rentsync
 
-if [ -d "$DIR/.git" ]; then git -C "$DIR" fetch -q --depth 1 origin main && git -C "$DIR" reset -q --hard origin/main
-else git clone -q --depth 1 "$REPO_URL" "$DIR"; fi
+REF=${RSN_REF:-main}
+[ -d "$DIR/.git" ] || git clone -q --depth 1 "$REPO_URL" "$DIR"
+git -C "$DIR" fetch -q --depth 1 origin "$REF" && git -C "$DIR" reset -q --hard FETCH_HEAD
 npm ci --prefix "$DIR/scripts" --omit=dev --no-audit --no-fund --silent
 
 # Build the Rust sync binary here, only when its source changed. The free
@@ -111,9 +117,37 @@ AccuracySec=1s
 WantedBy=timers.target
 EOF
 
+# self-update: newest commit on main that passed its GitHub checks, every 5 minutes
+cat > "/etc/systemd/system/$UNIT-update.service" <<EOF
+[Unit]
+Description=Stoopify server self-update (only versions that passed their checks)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash $DIR/scripts/self-update.sh
+TimeoutStartSec=3600
+EOF
+
+cat > "/etc/systemd/system/$UNIT-update.timer" <<EOF
+[Unit]
+Description=Stoopify server self-update every 5 minutes
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=5min
+RandomizedDelaySec=30
+
+[Install]
+WantedBy=timers.target
+EOF
+
 systemctl daemon-reload
 systemctl enable --now "$UNIT.timer"
+systemctl enable --now "$UNIT-update.timer"
 systemctl start "$UNIT.service" || true
 journalctl -u "$UNIT" -n 8 --no-pager
 echo
-echo "Installed: syncs every 60 seconds. Watch it with: journalctl -u $UNIT -f"
+echo "Installed $(git -C "$DIR" rev-parse --short HEAD): syncs every 60 seconds and updates itself from GitHub."
+echo "Watch it with: journalctl -u $UNIT -f    Updates: journalctl -u $UNIT-update -f"
