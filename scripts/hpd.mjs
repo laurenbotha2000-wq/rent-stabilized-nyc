@@ -1,13 +1,13 @@
 // Add each building's NYC HPD record to the listings in data.json, in place:
 //   hpd: { violations: {A, B, C, total} (open), complaints_12mo, owner, agent, registered,
-//          year_built, as_of }
+//          year_built, units (residential, from PLUTO), as_of }
 //
 //   node hpd.mjs out/data.json [out/published.json]
 //
 // Sources (NYC Open Data, free; SOCRATA_APP_TOKEN raises rate limits if set):
 //   HPD Violations wvxf-dwi5, HPD Complaints ygpa-z7cr,
 //   HPD Registrations tesw-yqqr and Registration Contacts feu5-w2e2,
-//   and PLUTO 64uk-42ks for the year built.
+//   and PLUTO 64uk-42ks for the year built and number of apartments.
 // Building records change slowly: entries from the previously published file
 // that are under a day old are reused instead of asking the city again.
 // Individual owners' names are not published; companies and agents are.
@@ -27,7 +27,7 @@ const cached = new Map();
 if (previousFile && existsSync(previousFile)) {
   for (const l of JSON.parse(readFileSync(previousFile, "utf8")).listings || []) {
     const b = bblOf(l);
-    if (b && l.hpd?.as_of && "year_built" in l.hpd && Date.now() - Date.parse(l.hpd.as_of) < MAX_AGE_MS) cached.set(b, l.hpd);
+    if (b && l.hpd?.as_of && "units" in l.hpd && Date.now() - Date.parse(l.hpd.as_of) < MAX_AGE_MS) cached.set(b, l.hpd);
   }
 }
 
@@ -74,9 +74,10 @@ for (let i = 0; i < todo.length; i += BATCH) {
         $select: "boroid,block,lot,registrationid,lastregistrationdate",
         $where: lotsWhere(batch),
       }),
-      soql("64uk-42ks", { $select: "bbl,yearbuilt", $where: `bbl in(${batch.join(",")})` }),
+      soql("64uk-42ks", { $select: "bbl,yearbuilt,unitsres", $where: `bbl in(${batch.join(",")})` }),
     ]);
     const built = new Map(lots.map((r) => [String(r.bbl).split(".")[0], Number(r.yearbuilt) || null]));
+    const units = new Map(lots.map((r) => [String(r.bbl).split(".")[0], Number(r.unitsres) || null]));
     const latestReg = new Map();
     for (const r of registrations) {
       const k = key(r.boroid, r.block, r.lot);
@@ -109,6 +110,7 @@ for (let i = 0; i < todo.length; i += BATCH) {
         agent: cs.find((c) => c.type === "Agent" && c.corporationname)?.corporationname || null,
         registered: Boolean(reg),
         year_built: built.get(b) ?? null,
+        units: units.get(b) ?? null,
         as_of: new Date().toISOString(),
       });
     }

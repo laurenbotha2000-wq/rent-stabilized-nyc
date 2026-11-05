@@ -11,7 +11,7 @@ const root = new URL("..", import.meta.url).pathname;
 const src = `${root}web`, out = `${root}dist`;
 rmSync(out, { recursive: true, force: true });
 mkdirSync(out);
-for (const f of ["index.html", "theme.js", "manifest.webmanifest", "stations.json", "icons"]) cpSync(`${src}/${f}`, `${out}/${f}`, { recursive: true });
+for (const f of ["index.html", "theme.js", "manifest.webmanifest", "stations.json", "neighborhoods.json", "icons"]) cpSync(`${src}/${f}`, `${out}/${f}`, { recursive: true });
 
 await build({
   entryPoints: [`${src}/app.js`],
@@ -21,8 +21,8 @@ await build({
 await build({ entryPoints: [`${src}/style.css`], minify: true, outfile: `${out}/style.css`, logLevel: "warning" });
 
 // offline cache: new name per build so phones pick up updates, and only files that exist
-const version = createHash("sha256").update(readFileSync(`${out}/app.js`)).update(readFileSync(`${out}/style.css`)).digest("hex").slice(0, 10);
-const shell = ["/", "/index.html", "/style.css", "/app.js", "/theme.js", "/manifest.webmanifest", "/stations.json", "/icons/icon-192.png", "/icons/icon-512.png"];
+const version = createHash("sha256").update(readFileSync(`${out}/app.js`)).update(readFileSync(`${out}/style.css`)).update(readFileSync(`${out}/index.html`)).digest("hex").slice(0, 10);
+const shell = ["/", "/index.html", "/style.css", "/app.js", "/theme.js", "/manifest.webmanifest", "/stations.json", "/icons/icon-192.png", "/icons/icon-512.png", "/icons/favicon.svg"];
 writeFileSync(`${out}/sw.js`, readFileSync(`${src}/sw.js`, "utf8")
   .replace(/const CACHE = "[^"]*";/, `const CACHE = "shell-${version}";`)
   .replace(/const SHELL = \[[\s\S]*?\];/, `const SHELL = ${JSON.stringify(shell)};`));

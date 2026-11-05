@@ -3,12 +3,24 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Rent Stabilized NYC</title>
-  <meta name="description" content="Map of NYC apartments likely to be rent stabilized.">
+  <title>Stoopify · Rent-stabilized NYC apartments</title>
+  <meta name="description" content="Stoopify: find your stoop. A live map of NYC apartments likely to be rent stabilized.">
+  <meta name="apple-mobile-web-app-title" content="Stoopify">
   <meta name="theme-color" content="#f4efe4">
   <link rel="manifest" href="/manifest.webmanifest">
-  <link rel="icon" href="/icons/icon-192.png">
-  <link rel="apple-touch-icon" href="/icons/icon-192.png">
+  <link rel="icon" href="/icons/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="/icons/favicon-32.png" sizes="32x32" type="image/png">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Stoopify">
+  <meta property="og:title" content="Stoopify · Find your stoop">
+  <meta property="og:description" content="A live map of NYC apartments likely to be rent stabilized.">
+  <meta property="og:url" content="https://rent-stabilized-nyc.web.app/">
+  <meta property="og:image" content="https://rent-stabilized-nyc.web.app/icons/share.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Stoopify: an outline drawing of a brownstone with its stoop">
+  <meta name="twitter:card" content="summary_large_image">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <script src="/theme.js"></script>
@@ -21,7 +33,7 @@
   <!-- Signed out -->
   <section id="login" class="screen center" hidden>
     <div class="auth-card">
-      <div class="brand big"><span class="logo" aria-hidden="true"></span><h1>Rent Stabilized NYC</h1></div>
+      <div class="brand big"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><path d="M9 3.5h20V6H9zM11 6v14M27 6v23.5M1.5 29.5h29M14 8.5h3.5v4H14zM21 8.5h3.5v4H21zM14 20v-3.5a1.75 1.75 0 0 1 3.5 0V20M21 14.5h3.5V20H21zM21 23.5h3.5V27H21zM17.5 20H9V22.4H7V24.8H5V27.2H3V29.5M9 17.5 3 25.5M3 25.5V29.5"/></svg><h1>Stoopify</h1></div>
       <p class="muted">Sign in to save searches, get alerts and keep your preferences. Browsing the map doesn't need an account.</p>
       <button id="google" class="btn wide provider">Continue with Google</button>
       <button id="apple" class="btn wide provider dark" hidden>Continue with Apple</button>
@@ -57,10 +69,10 @@
   <!-- The app -->
   <section id="app" class="screen" hidden>
     <header class="top">
-      <div class="brand"><span class="logo" aria-hidden="true"></span><h1>Rent Stabilized NYC</h1></div>
+      <div class="brand"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><path d="M9 3.5h20V6H9zM11 6v14M27 6v23.5M1.5 29.5h29M14 8.5h3.5v4H14zM21 8.5h3.5v4H21zM14 20v-3.5a1.75 1.75 0 0 1 3.5 0V20M21 14.5h3.5V20H21zM21 23.5h3.5V27H21zM17.5 20H9V22.4H7V24.8H5V27.2H3V29.5M9 17.5 3 25.5M3 25.5V29.5"/></svg><h1>Stoopify</h1></div>
       <div class="status" id="status" role="status"></div>
       <div class="account">
-        <button class="btn ghost small" id="open-feed">What's new <span class="count" id="feed-count" hidden></span></button>
+        <button class="btn ghost small" id="open-feed">Recent listings <span class="count" id="feed-count" hidden></span></button>
         <button class="btn small" id="open-prefs">My preferences</button>
         <button class="btn ghost small" id="open-theme" aria-label="Theme and colors" title="Theme and colors">◐</button>
         <button class="btn small" id="sign-in" hidden>Sign in</button>
@@ -69,61 +81,69 @@
     </header>
 
     <form class="filters" id="filters" autocomplete="off">
-      <label class="field grow">
-        <span>Neighborhoods</span>
-        <input id="hood-input" list="hoods" placeholder="Type to add, e.g. Bushwick">
-        <datalist id="hoods"></datalist>
-        <div class="chips" id="hood-chips"></div>
-      </label>
-      <fieldset class="field">
-        <legend>Bedrooms (pick any)</legend>
-        <div class="seg" id="beds" role="group" aria-label="Bedrooms">
-          <button type="button" data-v="" class="on" aria-pressed="true">Any</button>
-          <button type="button" data-v="0" aria-pressed="false">Studio</button>
-          <button type="button" data-v="1" aria-pressed="false">1</button>
-          <button type="button" data-v="2" aria-pressed="false">2</button>
-          <button type="button" data-v="3" aria-pressed="false">3</button>
-          <button type="button" data-v="4" aria-pressed="false">4+</button>
+      <div class="filter-row" id="filter-main">
+        <label class="field grow">
+          <span>Neighborhoods</span>
+          <input id="hood-input" placeholder="Type or pick, e.g. Bushwick" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false">
+          <div class="chips" id="hood-chips"></div>
+        </label>
+        <fieldset class="field">
+          <legend>Bedrooms (pick any)</legend>
+          <div class="seg" id="beds" role="group" aria-label="Bedrooms">
+            <button type="button" data-v="" class="on" aria-pressed="true">Any</button>
+            <button type="button" data-v="0" aria-pressed="false">Studio</button>
+            <button type="button" data-v="1" aria-pressed="false">1</button>
+            <button type="button" data-v="2" aria-pressed="false">2</button>
+            <button type="button" data-v="3" aria-pressed="false">3</button>
+            <button type="button" data-v="4" aria-pressed="false">4+</button>
+          </div>
+        </fieldset>
+        <label class="field small"><span>Min $</span><input id="min" type="number" min="0" step="50" inputmode="numeric"></label>
+        <label class="field small"><span>Max $</span><input id="max" type="number" min="0" step="50" inputmode="numeric"></label>
+        <label class="field small"><span>Listed</span>
+          <select id="days" aria-label="Listed within">
+            <option value="">Any time</option>
+            <option value="1">Last 24 hours</option>
+            <option value="3">Last 3 days</option>
+            <option value="7">Last 7 days</option>
+            <option value="14">Last 14 days</option>
+            <option value="30">Last 30 days</option>
+          </select></label>
+        <div class="field more-btn">
+          <span>&nbsp;</span>
+          <div class="row">
+            <button type="button" class="btn ghost" id="clear-filters" hidden>Clear all <span class="count" id="filter-count">0</span></button>
+            <button type="button" class="btn ghost" id="toggle-more" aria-expanded="false" aria-controls="more-filters">
+              More filters <span class="count" id="more-count" hidden></span>
+            </button>
+          </div>
         </div>
-      </fieldset>
-      <label class="field small"><span>Min $</span><input id="min" type="number" min="0" step="50" inputmode="numeric"></label>
-      <label class="field small"><span>Max $</span><input id="max" type="number" min="0" step="50" inputmode="numeric"></label>
-      <label class="field small"><span>Listed</span>
-        <select id="days" aria-label="Listed within">
-          <option value="">Any time</option>
-          <option value="1">Last 24 hours</option>
-          <option value="3">Last 3 days</option>
-          <option value="7">Last 7 days</option>
-          <option value="14">Last 14 days</option>
-          <option value="30">Last 30 days</option>
-        </select></label>
-      <fieldset class="field grow commute-filter">
-        <legend>Subway commute to</legend>
-        <div class="row">
-          <input id="c-place" placeholder="Work or school address" autocomplete="street-address">
-          <select id="c-minutes" aria-label="Longest commute">
-            <option value="20">≤ 20 min</option>
-            <option value="30" selected>≤ 30 min</option>
-            <option value="45">≤ 45 min</option>
-            <option value="60">≤ 60 min</option>
-          </select>
-          <button type="button" class="btn ghost small" id="c-set">Set</button>
-          <button type="button" class="btn ghost small" id="c-clear" hidden>Clear</button>
-        </div>
-        <span class="msg" id="c-msg"></span>
-      </fieldset>
-      <div class="field more-btn">
-        <span>&nbsp;</span>
-        <button type="button" class="btn ghost" id="toggle-more" aria-expanded="false" aria-controls="more-filters">
-          More filters <span class="count" id="more-count" hidden></span>
-        </button>
       </div>
-      <div class="field saved">
-        <span>Saved searches</span>
-        <div class="row">
-          <select id="saved"><option value="">—</option></select>
-          <button type="button" id="save-search" class="btn ghost small">Save</button>
-          <button type="button" id="delete-search" class="btn ghost small" hidden aria-label="Delete saved search">Delete</button>
+      <div class="filter-row" id="filter-extra">
+        <fieldset class="field grow commute-filter">
+          <legend>Subway commute to</legend>
+          <button type="button" class="link places-link" id="open-places" aria-haspopup="dialog">★ My places <span class="count" id="places-count" hidden>0</span></button>
+          <div class="row">
+            <input id="c-place" placeholder="Address or place" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false">
+            <select id="c-minutes" aria-label="Longest commute">
+              <option value="20">≤ 20 min</option>
+              <option value="30" selected>≤ 30 min</option>
+              <option value="45">≤ 45 min</option>
+              <option value="60">≤ 60 min</option>
+            </select>
+            <button type="button" class="btn ghost small" id="c-set">Set</button>
+            <button type="button" class="btn ghost small" id="c-clear" hidden>Clear</button>
+          </div>
+          <span class="msg" id="c-msg"></span>
+          <button type="button" class="link save-place" id="c-save-place" hidden>Save place</button>
+        </fieldset>
+        <div class="field saved">
+          <span>Saved searches</span>
+          <div class="row">
+            <select id="saved"><option value="">—</option></select>
+            <button type="button" id="save-search" class="btn ghost small">Save</button>
+            <button type="button" id="delete-search" class="btn ghost small" hidden aria-label="Delete saved search">Delete</button>
+          </div>
         </div>
       </div>
       <div class="more-filters" id="more-filters" hidden>
@@ -144,6 +164,24 @@
           <option value="15">≤ 15 min</option>
         </select>
       </fieldset>
+          <fieldset class="field">
+            <legend>Building grade</legend>
+            <select id="grade" aria-label="Lowest building grade to show">
+              <option value="">Any grade</option>
+              <option value="A">A only</option>
+              <option value="B">B or better</option>
+              <option value="C">C or better</option>
+              <option value="D">D or better</option>
+            </select>
+          </fieldset>
+          <fieldset class="field">
+            <legend>Income limits</legend>
+            <select id="income" aria-label="Income-restricted apartments">
+              <option value="">Show all</option>
+              <option value="exclude">Hide income-restricted</option>
+              <option value="only">Only income-restricted</option>
+            </select>
+          </fieldset>
         <div class="field toggles">
         <label><input type="checkbox" id="delisted"> Include delisted</label>
         <label><input type="checkbox" id="unflagged"> Include unflagged</label>
@@ -170,11 +208,18 @@
     <main class="split" id="split" data-view="map">
       <div class="map-wrap">
         <div id="map" aria-label="Map of listings"></div>
+        <div class="map-mode">
+          <div class="seg" id="grouping" role="group" aria-label="Show on the map">
+            <button type="button" data-v="building" title="One dot per building, numbered when several apartments are listed there">By building</button>
+            <button type="button" data-v="separate" title="Every apartment gets its own dot">Every apartment</button>
+          </div>
+        </div>
         <div class="legend">
           <span><i class="dot likely"></i>City-list building + uneven price</span>
           <span><i class="dot building"></i>City-list building</span>
           <span><i class="dot text"></i>Says so in listing</span>
           <span><i class="dot none"></i>Not flagged</span>
+          <label class="legend-toggle"><input type="checkbox" id="show-hoods"> Neighborhood outlines</label>
         </div>
       </div>
       <div class="list-wrap">
@@ -186,6 +231,7 @@
               <option value="newest">Newest</option>
               <option value="price-asc">Price: low to high</option>
               <option value="price-desc">Price: high to low</option>
+              <option value="violations">Best building grade</option>
               <option value="commute" id="sort-commute" hidden>Shortest commute</option>
             </select>
           </label>
@@ -210,29 +256,68 @@
     <div id="detail-body"></div>
   </dialog>
 
-  <dialog id="theme-dialog" class="sheet narrow">
+  <dialog id="theme-dialog" class="sheet narrow theme-sheet">
     <form method="dialog"><button class="close" aria-label="Close">×</button></form>
     <h2>Theme and colors</h2>
-    <fieldset class="field"><legend>Appearance</legend>
-      <div class="seg" id="theme-mode" role="group" aria-label="Appearance">
-        <button type="button" data-v="auto">Match device</button>
+    <div class="theme-group">
+      <h3 class="theme-label" id="appearance-label">Appearance</h3>
+      <div class="seg theme-seg" id="theme-mode" role="group" aria-labelledby="appearance-label">
+        <button type="button" data-v="auto">Device</button>
         <button type="button" data-v="light">Light</button>
         <button type="button" data-v="dark">Dark</button>
       </div>
-    </fieldset>
-    <fieldset class="field"><legend>Map dot colors</legend>
-      <label class="radio"><input type="radio" name="palette" value="default"> Standard
-        <span class="swatches"><i style="background:#c8321e"></i><i style="background:#34508f"></i><i style="background:#5d7a33"></i><i style="background:#a3967f"></i></span></label>
-      <label class="radio"><input type="radio" name="palette" value="cb"> Colorblind-safe
-        <span class="swatches"><i style="background:#D81B60"></i><i style="background:#1E88E5"></i><i style="background:#FFC107"></i><i style="background:#004D40"></i></span></label>
-      <label class="radio"><input type="radio" name="palette" value="ibm"> IBM
-        <span class="swatches"><i style="background:#DC267F"></i><i style="background:#648FFF"></i><i style="background:#FFB000"></i><i style="background:#785EF0"></i></span></label>
-      <label class="radio"><input type="radio" name="palette" value="okabe"> Okabe &amp; Ito
-        <span class="swatches"><i style="background:#D55E00"></i><i style="background:#0072B2"></i><i style="background:#009E73"></i><i style="background:#000000"></i></span></label>
-      <label class="radio"><input type="radio" name="palette" value="tol"> Paul Tol
-        <span class="swatches"><i style="background:#CC6677"></i><i style="background:#332288"></i><i style="background:#117733"></i><i style="background:#DDCC77"></i></span></label>
-    </fieldset>
-    <p class="muted small-text">The last four are colorblind-safe palettes from davidmathlogic.com/colorblind. Saved on this device.</p>
+    </div>
+    <div class="theme-group">
+      <h3 class="theme-label" id="palette-label">Map dot colors</h3>
+      <div class="palette-list" role="radiogroup" aria-labelledby="palette-label">
+        <label class="palette-opt"><input type="radio" name="palette" value="default">
+          <span class="palette-name">Standard<small>The site's colors</small></span>
+          <span class="swatches" aria-hidden="true"><i style="background:#c8321e"></i><i style="background:#34508f"></i><i style="background:#5d7a33"></i><i style="background:#a3967f"></i></span></label>
+        <label class="palette-opt"><input type="radio" name="palette" value="cb">
+          <span class="palette-name">Colorblind-safe<small>davidmathlogic default</small></span>
+          <span class="swatches" aria-hidden="true"><i style="background:#D81B60"></i><i style="background:#1E88E5"></i><i style="background:#FFC107"></i><i style="background:#004D40"></i></span></label>
+        <label class="palette-opt"><input type="radio" name="palette" value="ibm">
+          <span class="palette-name">IBM<small>IBM Design Library</small></span>
+          <span class="swatches" aria-hidden="true"><i style="background:#DC267F"></i><i style="background:#648FFF"></i><i style="background:#FFB000"></i><i style="background:#785EF0"></i></span></label>
+        <label class="palette-opt"><input type="radio" name="palette" value="okabe">
+          <span class="palette-name">Okabe &amp; Ito<small>Barrier-free palette</small></span>
+          <span class="swatches" aria-hidden="true"><i style="background:#D55E00"></i><i style="background:#0072B2"></i><i style="background:#009E73"></i><i style="background:#000000"></i></span></label>
+        <label class="palette-opt"><input type="radio" name="palette" value="tol">
+          <span class="palette-name">Paul Tol<small>Muted palette</small></span>
+          <span class="swatches" aria-hidden="true"><i style="background:#CC6677"></i><i style="background:#332288"></i><i style="background:#117733"></i><i style="background:#DDCC77"></i></span></label>
+      </div>
+      <p class="muted small-text">Dots, in order: likely · city-list building · says so in listing · not flagged. The last four palettes are colorblind-safe (davidmathlogic.com/colorblind). Saved on this device.</p>
+    </div>
+  </dialog>
+
+  <dialog id="places-dialog" class="sheet narrow" aria-labelledby="places-title">
+    <div class="sheet-head"><h2 id="places-title">My places</h2></div>
+    <p class="muted small-text">Save the addresses you travel to (work, school, family) with a nickname. Pick one to filter apartments by subway time to it.</p>
+    <ul class="places-list" id="places-list"></ul>
+    <p class="muted small-text" id="places-empty">No places yet. Add your first one below.</p>
+    <form id="add-place-form" class="add-place" autocomplete="off">
+      <h3>Add a place</h3>
+      <label class="field"><span>Address</span><input id="np-address" placeholder="Start typing an NYC address" role="combobox" aria-autocomplete="list" aria-expanded="false" maxlength="120" required></label>
+      <label class="field"><span>Nickname</span><input id="np-alias" maxlength="40" placeholder="e.g. Work, School, Mom's" required></label>
+      <p class="msg" id="np-msg"></p>
+      <div class="row end">
+        <button type="button" id="places-close" class="btn ghost">Done</button>
+        <button class="btn" id="np-add">Add place</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="place-dialog" class="sheet narrow">
+    <form method="dialog" id="place-form">
+      <h2>Save this place</h2>
+      <p class="muted small-text" id="place-address"></p>
+      <label class="field"><span>Nickname</span><input id="place-alias" maxlength="40" required placeholder="e.g. Work, School, Mom's"></label>
+      <p class="msg" id="place-msg"></p>
+      <div class="row end">
+        <button type="button" id="place-cancel" class="btn ghost">Cancel</button>
+        <button value="save" class="btn">Save</button>
+      </div>
+    </form>
   </dialog>
 
   <dialog id="save-dialog" class="sheet narrow">
@@ -295,7 +380,7 @@
 
   <dialog id="feed-dialog" class="sheet">
     <form method="dialog"><button class="close" aria-label="Close">×</button></form>
-    <h2>What's new</h2>
+    <h2>Recent listings</h2>
     <p class="muted small-text">Changes picked up by the sync over the last 30 days, newest first.</p>
     <div class="feed" id="feed"></div>
   </dialog>
@@ -326,12 +411,12 @@
       </div>
 
       <label class="field"><span>Neighborhoods (leave empty for anywhere)</span>
-        <input id="p-hood-input" list="hoods" placeholder="Type to add, e.g. Crown Heights"></label>
+        <input id="p-hood-input" placeholder="Type or pick, e.g. Crown Heights" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false"></label>
       <div class="chips" id="p-hood-chips"></div>
 
       <fieldset class="field"><legend>Commute to a place (work, school, family)</legend>
         <div class="row wrap">
-          <input id="p-near" placeholder="Address, e.g. 1 Centre St, Manhattan">
+          <input id="p-near" placeholder="Address or place" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false">
           <select id="p-minutes" aria-label="Longest commute">
             <option value="15">up to 15 min</option>
             <option value="20">up to 20 min</option>

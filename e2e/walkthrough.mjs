@@ -25,6 +25,44 @@ const results = [];
 const check = (name, ok, detail = "") => { results.push({ name, ok, detail }); console.log(`${ok ? "PASS" : "FAIL"}  ${name}${detail ? `: ${detail}` : ""}`); };
 const count = async (page) => Number(((await page.textContent("#summary")) || "0").replace(/[^\d].*$/s, "").replace(/,/g, "")) || 0;
 
+// Layout: boxes that should line up, measured in the page (px, rounded)
+const near = (a, b, tol = 1) => Math.abs(a - b) <= tol;
+async function alignment(page) {
+  return page.evaluate(() => {
+    const box = (e) => { const r = e.getBoundingClientRect(); return { l: r.left, r: r.right, t: r.top, b: r.bottom, w: r.width, h: r.height }; };
+    const visible = (e) => e && e.getClientRects().length && getComputedStyle(e).visibility !== "hidden";
+    const fields = [...document.querySelectorAll("#filters .filter-row > .field, #filters .filter-row > fieldset")].filter(visible);
+    const lineOf = (sel) => {
+      const fs = [...document.querySelectorAll(`${sel} > .field, ${sel} > fieldset`)].filter(visible);
+      const top = Math.min(...fs.map((f) => box(f).t));
+      return fs.filter((f) => Math.abs(box(f).t - top) < 30);
+    };
+    const row = lineOf("#filter-main"), row2 = lineOf("#filter-extra");
+    const ctl = (f) => [...f.querySelectorAll("input:not([type=checkbox]), select, .seg, button:not(.link)")].find(visible);
+    const lab = (f) => f.querySelector(":scope > span, :scope > legend");
+    const overlaps = [];
+    for (let i = 0; i < fields.length; i++) for (let j = i + 1; j < fields.length; j++) {
+      const a = box(fields[i]), b = box(fields[j]);
+      if (a.l < b.r - 1 && b.l < a.r - 1 && a.t < b.b - 1 && b.t < a.b - 1) overlaps.push(`${lab(fields[i])?.textContent} / ${lab(fields[j])?.textContent}`);
+    }
+    // controls inside a field must not spill out of it (e.g. a button pushed past its neighbor)
+    const spills = fields.filter((f) => [...f.querySelectorAll("input, select, button")].filter(visible)
+      .some((c) => box(c).r > box(f).r + 1)).map((f) => lab(f)?.textContent);
+    const header = [...document.querySelectorAll(".top .account > *")].filter(visible).map(box);
+    return {
+      labelTops: row.map((f) => lab(f) ? Math.round(box(lab(f)).t) : null).filter((x) => x != null),
+      controlTops: row.map((f) => ctl(f) && Math.round(box(ctl(f)).t)).filter(Boolean),
+      controlHeights: row.map((f) => ctl(f) && Math.round(box(ctl(f)).h)).filter(Boolean),
+      row2LabelTops: row2.map((f) => lab(f) ? Math.round(box(lab(f)).t) : null).filter((x) => x != null),
+      row2ControlTops: row2.map((f) => ctl(f) && Math.round(box(ctl(f)).t)).filter(Boolean),
+      rightEdges: ["#toggle-more", "#save-search"].map((q) => document.querySelector(q)).filter(visible).map((e) => Math.round(box(e).r)),
+      overlaps, spills,
+      headerTops: header.map((b) => Math.round(b.t)), headerHeights: header.map((b) => Math.round(b.h)),
+    };
+  });
+}
+const allSame = (xs, tol = 1) => xs.length > 0 && xs.every((x) => near(x, xs[0], tol));
+
 const browser = await chromium.launch({ executablePath: browserPath() });
 
 async function newPage(viewport) {
@@ -42,6 +80,14 @@ async function newPage(viewport) {
   await page.goto(PREVIEW);
   await page.waitForFunction(() => /apartments|map area/.test(document.querySelector("#summary")?.textContent || ""), null, { timeout: 20000 });
   await page.waitForTimeout(2500); // map tiles
+  const a = await alignment(page);
+  check("filter labels on one line", allSame(a.labelTops), a.labelTops.join(","));
+  check("filter controls on one line", allSame(a.controlTops), a.controlTops.join(","));
+  check("filter controls same height", allSame(a.controlHeights), a.controlHeights.join(","));
+  check("filters don't overlap", !a.overlaps.length && !a.spills.length, [...a.overlaps, ...a.spills].join("; "));
+  check("second filter row lines up", allSame(a.row2LabelTops) && allSame(a.row2ControlTops), `${a.row2LabelTops} / ${a.row2ControlTops}`);
+  check("More filters and Save line up on the right", a.rightEdges.length === 2 && allSame(a.rightEdges, 2), a.rightEdges.join(","));
+  check("header buttons line up", allSame(a.headerTops) && allSame(a.headerHeights), `${a.headerTops} / ${a.headerHeights}`);
   check("compass (north) control", await page.locator(".maplibregl-ctrl-compass").count() === 1);
   await page.uncheck("#in-view"); // count the whole city below
   const all = await count(page);
@@ -225,6 +271,25 @@ async function newPage(viewport) {
   check("listed within 30 days", recent <= all, `${recent}`);
   await page.selectOption("#days", "");
   await page.click("#open-theme");
+  const t = await page.evaluate(() => {
+    const box = (e) => e.getBoundingClientRect();
+    const opts = [...document.querySelectorAll(".palette-opt")];
+    const seg = [...document.querySelectorAll("#theme-mode button")].map(box);
+    const list = box(document.querySelector(".palette-list")), segBox = box(document.querySelector("#theme-mode"));
+    return {
+      radios: opts.map((o) => Math.round(box(o.querySelector("input")).left)),
+      names: opts.map((o) => Math.round(box(o.querySelector(".palette-name")).left)),
+      swatchRights: opts.map((o) => Math.round(box(o.querySelector(".swatches")).right)),
+      rowWidths: opts.map((o) => Math.round(box(o).width)),
+      radioMiddles: opts.map((o) => Math.round(box(o.querySelector("input")).top + box(o.querySelector("input")).height / 2 - box(o).top - box(o).height / 2)),
+      segWidths: seg.map((b) => Math.round(b.width)),
+      segSpansList: Math.abs(segBox.width - list.width) <= 1,
+    };
+  });
+  check("theme: palette rows line up", allSame(t.radios) && allSame(t.names) && allSame(t.swatchRights) && allSame(t.rowWidths),
+    `radios ${t.radios} names ${t.names} swatches ${t.swatchRights}`);
+  check("theme: radios centered in their rows", t.radioMiddles.every((m) => Math.abs(m) <= 1), t.radioMiddles.join(","));
+  check("theme: appearance buttons equal and full width", allSame(t.segWidths) && t.segSpansList, `${t.segWidths}`);
   await page.click('#theme-mode button[data-v="dark"]');
   await page.check('input[name=palette][value=cb]');
   await page.waitForTimeout(1500);
@@ -234,6 +299,133 @@ async function newPage(viewport) {
   await page.click('#theme-mode button[data-v="auto"]');
   await page.check('input[name=palette][value=default]');
   await page.keyboard.press("Escape");
+
+  // address suggestions as you type, then save the pick as a nicknamed place
+  await page.fill("#c-place", "");
+  await page.click("#c-place");
+  await page.type("#c-place", "1 centre st", { delay: 30 });
+  await page.waitForSelector("#c-place-suggest li[role=option]", { timeout: 15000 });
+  const sug = await page.locator("#c-place-suggest li[role=option]").allTextContents();
+  check("address suggestions while typing", sug.length > 0, sug.slice(0, 2).join(" | "));
+  check("addresses aren't in all capitals", sug.length > 0 && sug.every((t) => !/[A-Z]{4,}/.test(t)), sug[0]);
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Enter");
+  await page.waitForFunction(() => !document.querySelector("#c-clear").hidden, null, { timeout: 5000 });
+  check("picking a suggestion sets the commute", true, await page.inputValue("#c-place"));
+  const msgShown = await page.evaluate(() => {
+    const m = document.querySelector("#c-msg"), r = m.getBoundingClientRect(), f = document.querySelector("#filters").getBoundingClientRect();
+    const at = document.elementFromPoint(r.left + Math.min(r.width - 2, 40), r.top + r.height / 2);
+    return { text: m.textContent, inside: r.bottom <= f.bottom + 0.5 && r.right <= f.right + 0.5, onTop: m.contains(at), fits: m.scrollWidth <= m.clientWidth + 1 };
+  });
+  check("commute message isn't cut off", msgShown.inside && msgShown.onTop && msgShown.fits, JSON.stringify(msgShown));
+  await page.click("#c-save-place");
+  await page.fill("#place-alias", "Work");
+  await page.click('#place-form button[value="save"]');
+  await page.waitForTimeout(300);
+  check("save place hides once saved", await page.locator("#c-save-place").isHidden());
+  await page.click("#c-clear");
+  await page.click("#c-place");
+  await page.waitForSelector("#c-place-suggest:not([hidden]) .alias", { timeout: 3000 });
+  check("saved place offered first", (await page.locator("#c-place-suggest li").first().textContent()).startsWith("Work"));
+  await page.locator("#c-place-suggest li").first().click();
+  check("picking a saved place sets the commute", /Work/.test(await page.textContent("#c-msg")), await page.textContent("#c-msg"));
+  await page.click("#c-clear");
+  const logo = await page.locator(".top svg.logo").boundingBox();
+  check("brownstone logo shows", !!logo && logo.width > 10 && logo.height > 10);
+  check("logo is an outline drawing", await page.$eval(".top svg.logo", (e) => getComputedStyle(e).fill === "none" && getComputedStyle(e).stroke !== "none"));
+  check("site is named Stoopify", (await page.locator(".top h1").innerText()) === "Stoopify" && (await page.title()).startsWith("Stoopify"));
+  const icons = await page.evaluate(async () => {
+    const meta = (q) => document.querySelector(q)?.getAttribute("content") || document.querySelector(q)?.getAttribute("href");
+    const ok = async (u) => { const r = await fetch(new URL(u, location.href).pathname); return r.ok && /image/.test(r.headers.get("content-type") || ""); };
+    return { tab: await ok(meta('link[rel="icon"][type="image/svg+xml"]')), apple: await ok(meta('link[rel="apple-touch-icon"]')),
+             share: await ok(meta('meta[property="og:image"]')), card: meta('meta[name="twitter:card"]') };
+  });
+  check("browser tab icon, home-screen icon and share image load", icons.tab && icons.apple && icons.share && icons.card === "summary_large_image");
+
+  // every pop-up closes when you click outside it
+  const outside = async (open, id) => {
+    await open();
+    await page.waitForSelector(`#${id}[open]`);
+    const b = await page.locator(`#${id}`).boundingBox();
+    await page.mouse.click(Math.max(2, b.x - 15), Math.max(2, b.y + 10));
+    await page.waitForTimeout(150);
+    return !(await page.locator(`#${id}[open]`).count());
+  };
+  const closes = {
+    theme: await outside(() => page.click("#open-theme"), "theme-dialog"),
+    recent: await outside(() => page.click("#open-feed"), "feed-dialog"),
+    prefs: await outside(() => page.click("#open-prefs"), "prefs-dialog"),
+    profile: await outside(() => page.click("#open-profile"), "profile-dialog"),
+    save: await outside(() => page.click("#save-search"), "save-dialog"),
+    apartment: await outside(() => page.locator("#list .card").first().click(), "detail"),
+  };
+  check("click outside closes every pop-up", Object.values(closes).every(Boolean), JSON.stringify(closes));
+  check("feed is called Recent listings", (await page.textContent("#open-feed")).includes("Recent listings"));
+  // map switch: every apartment (default) or by building; no clustering option
+  const modes = await page.$$eval("#grouping button", (bs) => bs.map((b) => [b.textContent, b.getAttribute("aria-pressed")]));
+  check("map shows Every apartment by default, By building as the other choice",
+    modes.length === 2 && modes.some(([t, p]) => t === "Every apartment" && p === "true") && modes.some(([t]) => t === "By building"), JSON.stringify(modes));
+  await page.click('#grouping [data-v="building"]');
+  await page.waitForTimeout(500);
+  check("By building switch remembered", await page.evaluate(() => localStorage.getItem("grouping")) === "building");
+  await page.click('#grouping [data-v="separate"]');
+
+  // My places: add two, use one, remove one
+  await page.click("#open-places");
+  check("My places opens", await page.isVisible("#places-dialog"));
+  for (const [addr, alias, street] of [["350 5th Ave", "Office", "5 Avenue"], ["620 Atlantic Ave", "Gym", "Atlantic"]]) {
+    await page.fill("#np-address", addr);
+    const hit = `#np-address-suggest li:not(.note):has-text("${street}")`;
+    await page.waitForSelector(hit, { timeout: 8000 });
+    await page.click(`${hit} >> nth=0`);
+    await page.fill("#np-alias", alias);
+    await page.click("#np-add");
+    await page.waitForFunction((a) => [...document.querySelectorAll("#places-list .alias")].some((e) => e.textContent === a), alias);
+  }
+  check("can save several places", (await page.locator("#places-list li").count()) >= 3 && Number(await page.textContent("#places-count")) >= 3,
+    await page.textContent("#places-count"));
+  await page.click('#places-list li:has-text("Office") >> text=Use');
+  check("Use sets the commute filter", !(await page.isVisible("#places-dialog")) && /Office/.test(await page.textContent("#c-msg")));
+  await page.click("#c-clear");
+  await page.click("#open-places");
+  await page.click('#places-list li:has-text("Gym") >> text=Remove');
+  await page.waitForTimeout(300);
+  check("Remove deletes a place", !(await page.locator('#places-list li:has-text("Gym")').count()));
+  await page.click("#places-close");
+
+  // violations ranking + income limits
+  await page.selectOption("#sort", "violations");
+  const ranked = await page.evaluate(() => [...document.querySelectorAll("#list .card .meta")].slice(0, 5).map((e) => e.textContent));
+  const gradesInOrder = await page.evaluate(() => [...document.querySelectorAll("#list .card")].map((c) => c.querySelector(".badge.grade")?.textContent?.slice(-1)).filter(Boolean));
+  check("Best building grade sort goes A to F", gradesInOrder.length > 5 && gradesInOrder.every((g, i) => i === 0 || g >= gradesInOrder[i - 1]) && gradesInOrder[0] === "A",
+    gradesInOrder.slice(0, 3).join("") + "…" + gradesInOrder.slice(-3).join(""));
+  await page.selectOption("#sort", "newest");
+  await page.click("#toggle-more");
+  await page.selectOption("#income", "only");
+  const onlyIncome = await page.evaluate(() => ({ cards: document.querySelectorAll("#list .card").length, tags: document.querySelectorAll("#list .card .badge.income").length }));
+  check("Only income-restricted shows tagged listings", onlyIncome.cards > 0 && onlyIncome.cards === onlyIncome.tags, JSON.stringify(onlyIncome));
+  await page.selectOption("#income", "");
+  await page.selectOption("#grade", "B");
+  const graded = await page.evaluate(() => [...document.querySelectorAll("#list .card")].map((c) => c.querySelector(".badge.grade")?.textContent));
+  check("Building grade filter keeps only A and B", graded.length > 0 && graded.every((g) => g === "Grade A" || g === "Grade B"), [...new Set(graded)].join(","));
+  await page.selectOption("#grade", "");
+  await page.click("#toggle-more");
+  // neighborhood picker: a styled list with counts, type to narrow, Enter to add
+  await page.click("#hood-input");
+  const hoodRows = await page.locator("#hood-input-list li[role=option]").count();
+  const firstHood = await page.locator("#hood-input-list li[role=option]").first().textContent();
+  check("neighborhood list opens with counts", hoodRows > 10 && /\d+ apts?$/.test(firstHood), `${hoodRows} · ${firstHood}`);
+  await page.type("#hood-input", "bush");
+  await page.keyboard.press("Enter");
+  check("typing + Enter adds the neighborhood", (await page.locator("#hood-chips .chip").allTextContents()).includes("Bushwick"));
+  await page.keyboard.press("Escape");
+  // Clear all
+  await page.click('#beds button[data-v="1"]');
+  check("Clear all shows how many filters are set", await page.isVisible("#clear-filters") && (await page.textContent("#filter-count")) === "2");
+  await page.click("#clear-filters");
+  check("Clear all resets every filter", (await page.isHidden("#clear-filters")) && !(await page.locator("#hood-chips .chip").count())
+    && (await page.getAttribute('#beds button[data-v=""]', "aria-pressed")) === "true");
+  check("theme button says Theme", /Theme/.test(await page.textContent("#open-theme")));
 
   check("no console errors (desktop)", page.errors.length === 0, page.errors.slice(0, 3).join(" | "));
   await page.context().close();
@@ -248,6 +440,8 @@ async function newPage(viewport) {
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
   check("phone: no sideways scrolling", overflow <= 0, `${overflow}px`);
   check("phone: filters hidden until tapped", !(await page.isVisible("#filters")));
+  const pa = await alignment(page);
+  check("phone: header buttons in one even row", allSame(pa.headerTops) && allSame(pa.headerHeights), `${pa.headerTops} / ${pa.headerHeights}`);
   await page.screenshot({ path: `${SHOTS}07-phone-map.png` });
   await page.click("#toggle-filters");
   check("phone: Filters tab opens filters", await page.isVisible("#filters"));

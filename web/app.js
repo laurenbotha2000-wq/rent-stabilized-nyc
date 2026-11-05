@@ -1,10 +1,10 @@
-// Rent Stabilized NYC (hosted): live listings from Firestore for anyone,
+// Stoopify (hosted): live listings from Firestore for anyone,
 // map + list with filters; an account adds saved searches, preferences and alerts.
 import { CONFIG } from "./config.js";
-import { buildingKey, createMap } from "./map.js";
-import { FEATURES, geocode, hasPrefs, match, placeName } from "./prefs.js";
+import { GROUPINGS, buildingKey, createMap } from "./map.js";
+import { FEATURES, geocode, hasPrefs, match, niceAddress, placeName, suggest } from "./prefs.js";
 import { commute, describe, directionsUrl, loadStations, nearest, allLines } from "./commute.js";
-import { asList, commuteFor, isPrewar, matches, normalize } from "./filters.js";
+import { asList, commuteFor, grade, gradeRank, isPrewar, matches, normalize } from "./filters.js";
 
 const SDK = "https://www.gstatic.com/firebasejs/11.0.2";
 const $ = (id) => document.getElementById(id);
@@ -26,7 +26,7 @@ const DEV = Boolean(CONFIG.devData) && ["localhost", "127.0.0.1"].includes(locat
 const state = {
   listings: [], filtered: [], shown: PAGE, hoods: [], beds: "",
   user: null, searches: [], map: null, fb: null, unsub: [], alertSettings: null,
-  prefs: null, sortTouched: false, events: [], dataUnsub: [], bounds: null,
+  prefs: null, sortTouched: false, events: [], dataUnsub: [], bounds: null, places: [],
 };
 
 
@@ -80,8 +80,19 @@ function layout(l) {
   if (l.sqft) p.push(typeof l.sqft === "number" ? `${l.sqft} ft²` : String(l.sqft));
   return p.join(" · ");
 }
-function badges(reasons) {
+function badges(reasons, l) {
   const box = el("div", { className: "badges" });
+  const g = l && grade(l);
+  if (g) {
+    const b = el("span", { className: `badge grade grade-${g.letter}`, textContent: `Grade ${g.letter}` });
+    b.title = `Building grade ${g.letter}: ${gradeWhy(g)}`;
+    box.append(b);
+  }
+  if (l?.income_restricted) {
+    const b = el("span", { className: "badge income", textContent: "Income restricted" });
+    b.title = "The listing says renters must meet income limits (e.g. an affordable-housing lottery unit).";
+    box.append(b);
+  }
   if (!reasons.length) box.append(el("span", { className: "badge plain", textContent: "Not flagged" }));
   for (const r of reasons) box.append(el("span", { className: `badge ${r}`, textContent: LABELS[r] || r }));
   return box;
@@ -117,6 +128,8 @@ function currentFilters() {
   if ($("no-hazard").checked) f.noHazard = true;
   if ($("prewar").checked) f.prewar = true;
   if ($("days").value) f.days = Number($("days").value);
+  if ($("grade").value) f.grade = $("grade").value;
+  if ($("income").value) f.income = $("income").value;
   return f;
 }
 
@@ -135,6 +148,8 @@ function applyFilters(f) {
   $("no-hazard").checked = !!f.noHazard;
   $("prewar").checked = !!f.prewar;
   $("days").value = f.days ? String(f.days) : "";
+  $("grade").value = f.grade || "";
+  $("income").value = f.income || "";
   renderChips();
   refresh({ fit: true });
 }
@@ -145,6 +160,10 @@ const SORTS = {
   "price-asc": (a, b) => (a.price ?? Infinity) - (b.price ?? Infinity),
   "price-desc": (a, b) => (b.price ?? -Infinity) - (a.price ?? -Infinity),
   commute: (a, b) => (a._c?.minutes ?? Infinity) - (b._c?.minutes ?? Infinity),
+  violations: (a, b) => {
+    const x = gradeRank(a), y = gradeRank(b);
+    return (x[0] - y[0]) || (x[1] - y[1]) || (a.price ?? Infinity) - (b.price ?? Infinity);
+  },
 };
 
 function refresh({ fit = false } = {}) {
@@ -152,9 +171,12 @@ function refresh({ fit = false } = {}) {
   const personal = hasPrefs(state.prefs);
   $("matches-only-wrap").hidden = !personal;
   // how many filters are set inside the collapsed "More filters" panel
-  const more = ["reason", "features", "walk", "lines", "delisted", "unflagged", "noHazard", "prewar"].filter((k) => f[k] !== undefined).length;
+  const more = ["reason", "features", "walk", "lines", "delisted", "unflagged", "noHazard", "prewar", "grade", "income"].filter((k) => f[k] !== undefined).length;
   $("more-count").hidden = !more;
   $("more-count").textContent = String(more);
+  const set = Object.keys(f).length;
+  $("clear-filters").hidden = !set;
+  $("filter-count").textContent = String(set);
   state.filtered = state.listings.filter((l) => {
     if (!matches(l, f)) return false;
     l._c = f.commute ? commuteFor(l, f.commute) : null;
@@ -212,7 +234,7 @@ function card(l, onOpen) {
   c.querySelector(".layout").textContent = layout(l);
   c.querySelector(".hood").textContent = l.neighborhood || "";
   c.querySelector(".addr").textContent = l.address || "";
-  c.querySelector(".badges").replaceWith(badges(l.reasons));
+  c.querySelector(".badges").replaceWith(badges(l.reasons, l));
   if (l._m) {
     const m = c.querySelector(".match");
     m.hidden = false;
@@ -225,7 +247,7 @@ function card(l, onOpen) {
   const st = stationFor(l);
   if (st) meta.push(`${st.walk} min walk to ${st.name} (${st.routes.join(" ")})`);
   if (isPrewar(l)) meta.push(`Prewar (${l.hpd.year_built})`);
-  if (l.hpd?.violations.C) meta.push(`${l.hpd.violations.C} hazardous HPD violation${l.hpd.violations.C > 1 ? "s" : ""}`);
+  if (l.hpd) meta.push(violationText(l.hpd.violations));
   if (l._c) {
     c.querySelector(".hood").before(el("div", { className: "commute",
       textContent: `${describe(l._c).split(":")[0]} to ${placeName(state.commuteTo)}` }));
@@ -237,6 +259,21 @@ function card(l, onOpen) {
   c.addEventListener("keydown", (e) => { if (e.key === "Enter") onOpen(); });
   return c;
 }
+
+/** "0.4 serious violations per apartment (12 across 30 apartments)". */
+function gradeWhy(g) {
+  const per = g.perUnit < 0.05 && g.serious ? "under 0.05" : String(Number(g.perUnit.toFixed(2)));
+  return `${per} open serious violations per apartment (${g.serious} across ${g.units} apartment${g.units === 1 ? "" : "s"}${g.C ? `, ${g.C} immediately hazardous` : ""})`;
+}
+
+/** "No open violations", "8 open violations (2 hazardous)". */
+function violationText(v) {
+  if (!v.total) return "No open violations";
+  const bad = v.C ? ` (${v.C} immediately hazardous)` : "";
+  return `${v.total} open violation${v.total > 1 ? "s" : ""}${bad}`;
+}
+
+const GRADE_SCALE = "Grades count open class B and C HPD violations per apartment: A under 0.25, B under 0.75, C under 1.5, D under 3, F at the city's Worst Landlord Watchlist level (3+, or 2+ in buildings with 35+ apartments). Many immediately hazardous (C) violations lower the grade.";
 
 /** Building record from NYC HPD and PLUTO (year built, violations, complaints, registered owner and agent). */
 function hpdSection(l) {
@@ -251,6 +288,9 @@ function hpdSection(l) {
     el("dl", { className: "facts" },
       el("dt", { textContent: "Year built" }),
       el("dd", { textContent: h.year_built ? `${h.year_built}${isPrewar(l) ? " (prewar)" : ""}` : "—" }),
+      ...(grade(l) ? [el("dt", { textContent: "Building grade" }),
+        el("dd", {}, el("strong", { className: `grade-letter grade-${grade(l).letter}`, textContent: grade(l).letter }), ` · ${gradeWhy(grade(l))}. `,
+          el("span", { className: "muted", textContent: GRADE_SCALE }))] : []),
       el("dt", { textContent: "Open violations" }),
       el("dd", { textContent: v.total
         ? `${v.total} · ${v.C} immediately hazardous (C), ${v.B} hazardous (B), ${v.A} non-hazardous (A)`
@@ -313,7 +353,7 @@ function openDetail(url, focusMap = false, fromBuilding = null) {
     el("div", { className: "detail-head" },
       el("h2", { textContent: `${money(l.price)} · ${l.neighborhood || ""}` }), open),
     el("div", { className: "addr", textContent: [l.address, layout(l)].filter(Boolean).join(" · ") }),
-    badges(l.reasons),
+    badges(l.reasons, l),
     ...(m ? [el("p", { className: "compare", textContent: `${m.score}% match: ${m.why.join(" · ")}` })] : []),
     ...transit,
     ...hpdSection(l),
@@ -375,7 +415,8 @@ function setData(listings, meta) {
     .map((l) => ({ ...l, reasons: l.reasons || [] }))
     .sort((a, b) => (b.first_seen || "").localeCompare(a.first_seen || ""));
   const hoods = [...new Set(state.listings.filter((l) => l.status === "ACTIVE").map((l) => l.neighborhood).filter(Boolean))].sort();
-  $("hoods").replaceChildren(...hoods.map((h) => el("option", { value: h })));
+  state.hoodCounts = new Map(hoods.map((h) => [h, 0]));
+  for (const l of state.listings) if (l.status === "ACTIVE" && state.hoodCounts.has(l.neighborhood)) state.hoodCounts.set(l.neighborhood, state.hoodCounts.get(l.neighborhood) + 1);
   state.meta = meta;
   renderStatus();
   refresh();
@@ -425,6 +466,9 @@ function filterSummary(f) {
   if (f.unflagged) parts.push("incl. unflagged");
   if (f.noHazard) parts.push("no hazardous violations");
   if (f.prewar) parts.push("prewar");
+  if (f.grade) parts.push(f.grade === "A" ? "grade A buildings" : `grade ${f.grade} or better`);
+  if (f.income === "exclude") parts.push("no income limits");
+  if (f.income === "only") parts.push("income-restricted only");
   return parts.join(" · ") || "All rent-stabilized listings";
 }
 
@@ -508,6 +552,8 @@ async function deleteAccount() {
     const devices = await fs.getDocs(fs.query(fs.collection(db, "users", uid, "devices"), fs.limit(20)));
     await Promise.all(devices.docs.map((d) => fs.deleteDoc(d.ref)));
     await fs.deleteDoc(fs.doc(db, "users", uid, "alerts", "settings"));
+    const places = await fs.getDocs(fs.query(fs.collection(db, "users", uid, "places"), fs.limit(MAX_PLACES)));
+    await Promise.all(places.docs.map((d) => fs.deleteDoc(d.ref)));
     stopListeners();
     await auth.deleteUser(a.currentUser);
     $("profile-dialog").close();
@@ -651,11 +697,299 @@ function setCommute(to, { quiet = false } = {}) {
   } else if ($("sort").value === "commute") {
     $("sort").value = hasPrefs(state.prefs) ? "match" : "newest";
   }
-  message("c-msg", state.commuteTo ? `Estimated by subway to ${placeName(state.commuteTo)}` : "");
+  const saved = findPlace(state.commuteTo);
+  message("c-msg", state.commuteTo ? `Estimated by subway to ${saved ? saved.alias : placeName(state.commuteTo)}` : "");
+  showSavePlace();
   if (!quiet) refresh();
 }
 
+// ---- saved places (nicknamed addresses) -------------------------------------
+// In the account when signed in (users/{uid}/places), on this device otherwise;
+// a guest's places move into the account at sign-in.
+
+const MAX_PLACES = 20;
+const localPlaces = () => { try { return JSON.parse(store.get("places") || "[]"); } catch { return []; } };
+const samePlace = (a, b) => Math.abs(a.lat - b.lat) < 1e-5 && Math.abs(a.lng - b.lng) < 1e-5;
+const findPlace = (g) => g && state.places.find((p) => samePlace(p, g));
+
+function setPlaces(list) {
+  state.places = list.map((p) => ({ ...p, label: niceAddress(p.label) })).sort((a, b) => a.alias.localeCompare(b.alias));
+  for (const id of ["c-place", "p-near", "np-address"]) $(id).dispatchEvent(new Event("places-changed"));
+  showSavePlace();
+  $("places-count").hidden = !state.places.length;
+  $("places-count").textContent = String(state.places.length);
+  if ($("places-dialog").open) renderPlacesList();
+}
+
+async function savePlace(alias, g) {
+  const p = { alias: alias.slice(0, 40), label: g.label.slice(0, 120), lat: g.lat, lng: g.lng };
+  if (state.places.length >= MAX_PLACES) throw new Error(`You can save up to ${MAX_PLACES} places.`);
+  if (signedIn() && !DEV) {
+    const { fs, db } = state.fb;
+    await fs.addDoc(fs.collection(db, "users", state.user.uid, "places"), { ...p, created_at: fs.serverTimestamp() });
+  } else {
+    const list = [...localPlaces(), { id: String(Date.now()), ...p }];
+    store.set("places", JSON.stringify(list));
+    setPlaces(list);
+  }
+}
+
+async function forgetPlace(id) {
+  if (signedIn() && !DEV) {
+    const { fs, db } = state.fb;
+    await fs.deleteDoc(fs.doc(db, "users", state.user.uid, "places", id));
+  } else {
+    const list = localPlaces().filter((p) => p.id !== id);
+    store.set("places", JSON.stringify(list));
+    setPlaces(list);
+  }
+}
+
+function listenPlaces() {
+  const { fs, db } = state.fb;
+  const col = fs.collection(db, "users", state.user.uid, "places");
+  // bring along places saved before signing in
+  const guest = localPlaces();
+  if (guest.length) {
+    Promise.all(guest.slice(0, MAX_PLACES).map(({ id, ...p }) => fs.addDoc(col, { ...p, created_at: fs.serverTimestamp() })))
+      .then(() => store.remove("places")).catch(() => {});
+  }
+  state.unsub.push(fs.onSnapshot(fs.query(col, fs.limit(MAX_PLACES)),
+    (snap) => setPlaces(snap.docs.map((d) => ({ id: d.id, ...d.data() })))));
+}
+
+/** "Save place" shows under the commute box when its address isn't saved yet. */
+function showSavePlace() {
+  const g = state.commuteTo;
+  $("c-save-place").hidden = !g || !!findPlace(g);
+}
+
+/**
+ * Neighborhood box: a list of neighborhoods with how many apartments each has,
+ * narrowed as you type (names that start with the text first). Picked ones are left out.
+ */
+function attachHoodPicker(input, picked, onPick) {
+  const list = el("ul", { className: "suggest hood-suggest", role: "listbox", hidden: true });
+  list.id = `${input.id}-list`;
+  input.setAttribute("aria-controls", list.id);
+  (input.closest("dialog") || document.body).append(list);
+  let items = [], active = -1;
+  const place = () => {
+    const r = input.getBoundingClientRect();
+    Object.assign(list.style, { left: `${r.left}px`, top: `${r.bottom + 2}px`, width: `${Math.max(r.width, 260)}px` });
+  };
+  const close = () => { list.hidden = true; active = -1; input.setAttribute("aria-expanded", "false"); input.removeAttribute("aria-activedescendant"); };
+  const pick = (h) => { onPick(h); input.value = ""; render(); };
+  const render = () => {
+    const q = input.value.trim().toLowerCase();
+    const have = picked();
+    const all = [...(state.hoodCounts || new Map()).keys()].filter((h) => !have.includes(h));
+    const starts = all.filter((h) => h.toLowerCase().startsWith(q));
+    const contains = all.filter((h) => !h.toLowerCase().startsWith(q) && h.toLowerCase().includes(q));
+    items = [...starts, ...contains];
+    list.replaceChildren(...items.map((h, i) => {
+      const n = state.hoodCounts.get(h);
+      const li = el("li", { role: "option" }, el("span", { textContent: h }), el("span", { className: "hood-n", textContent: `${n} apt${n === 1 ? "" : "s"}` }));
+      li.id = `${list.id}-${i}`;
+      li.addEventListener("mousedown", (e) => e.preventDefault());
+      li.addEventListener("click", () => pick(h));
+      return li;
+    }), ...(items.length ? [] : [el("li", { className: "note", textContent: q ? "No neighborhood by that name has listings" : "All neighborhoods picked" })]));
+    active = q && items.length ? 0 : -1;
+    [...list.children].forEach((li, i) => li.setAttribute("aria-selected", String(i === active)));
+    list.hidden = false;
+    input.setAttribute("aria-expanded", "true");
+    place();
+  };
+  const move = (d) => {
+    if (list.hidden || !items.length) return;
+    active = (active + d + items.length) % items.length;
+    [...list.children].forEach((li, i) => li.setAttribute("aria-selected", String(i === active)));
+    input.setAttribute("aria-activedescendant", `${list.id}-${active}`);
+    list.children[active]?.scrollIntoView({ block: "nearest" });
+  };
+  input.addEventListener("focus", render);
+  input.addEventListener("click", () => { if (list.hidden) render(); });
+  input.addEventListener("input", render);
+  input.addEventListener("blur", () => setTimeout(close, 120));
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowDown") { e.preventDefault(); if (list.hidden) render(); else move(1); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); move(-1); }
+    else if (e.key === "Escape" && !list.hidden) { e.preventDefault(); e.stopPropagation(); close(); }
+    else if (e.key === "Enter") { e.preventDefault(); if (active >= 0) pick(items[active]); }
+  });
+  addEventListener("resize", () => { if (!list.hidden) place(); });
+  addEventListener("scroll", () => { if (!list.hidden) place(); }, true);
+}
+
+/**
+ * Suggestions under an address box: saved places that match first, then NYC
+ * addresses as you type. onPick({ label, lat, lng, alias? }).
+ */
+function attachSuggest(input, onPick) {
+  const list = el("ul", { className: "suggest", role: "listbox", hidden: true });
+  list.id = `${input.id}-suggest`;
+  input.setAttribute("aria-controls", list.id);
+  // inside a pop-up the list must live in it too, or it's drawn behind the pop-up
+  (input.closest("dialog") || document.body).append(list);
+  let items = [], active = -1, timer, ctrl, seq = 0;
+
+  const place = () => {
+    const r = input.getBoundingClientRect();
+    Object.assign(list.style, { left: `${r.left}px`, top: `${r.bottom + 2}px`, width: `${Math.max(r.width, 300)}px` });
+  };
+  const close = () => { list.hidden = true; active = -1; input.setAttribute("aria-expanded", "false"); };
+  const pick = (g) => { close(); onPick(g); };
+  const render = (addresses = [], note = "") => {
+    const q = input.value.trim().toLowerCase();
+    const saved = state.places.filter((p) => !q || p.alias.toLowerCase().includes(q) || p.label.toLowerCase().includes(q));
+    items = [...saved.map((p) => ({ ...p, saved: true })), ...addresses.filter((a) => !saved.some((p) => samePlace(p, a)))];
+    list.replaceChildren(...items.map((g, i) => {
+      const li = el("li", { role: "option" });
+      li.id = `${list.id}-${i}`;
+      if (g.saved) {
+        const forget = el("button", { type: "button", className: "forget", textContent: "×", title: `Forget ${g.alias}` });
+        forget.setAttribute("aria-label", `Forget ${g.alias}`);
+        forget.addEventListener("mousedown", (e) => { e.preventDefault(); e.stopPropagation(); });
+        forget.addEventListener("click", (e) => { e.stopPropagation(); forgetPlace(g.id).catch((err) => toast(err.message)); });
+        li.append(el("span", {}, el("span", { className: "alias", textContent: g.alias }), el("span", { className: "addr-line", textContent: g.label })), forget);
+      } else li.append(el("span", { textContent: g.label }));
+      li.addEventListener("mousedown", (e) => e.preventDefault()); // keep focus in the box
+      li.addEventListener("click", () => pick(g));
+      return li;
+    }), ...(note ? [el("li", { className: "note", textContent: note })] : []));
+    active = -1;
+    const open = items.length > 0 || !!note;
+    list.hidden = !open;
+    input.setAttribute("aria-expanded", String(open));
+    if (open) place();
+  };
+  const lookup = () => {
+    clearTimeout(timer);
+    const q = input.value.trim();
+    if (q.length < 3) { render(); return; }
+    render([], "Searching NYC addresses…");
+    timer = setTimeout(async () => {
+      ctrl?.abort(); ctrl = new AbortController();
+      const mine = ++seq;
+      try {
+        const found = await suggest(q, ctrl.signal);
+        if (mine === seq && document.activeElement === input) render(found, found.length ? "" : "No NYC address found");
+      } catch (e) { if (e.name !== "AbortError" && mine === seq) render([], "Address lookup isn't available right now"); }
+    }, 200);
+  };
+  const move = (d) => {
+    if (list.hidden || !items.length) return;
+    active = (active + d + items.length) % items.length;
+    [...list.children].forEach((li, i) => li.setAttribute("aria-selected", String(i === active)));
+    input.setAttribute("aria-activedescendant", `${list.id}-${active}`);
+    list.children[active]?.scrollIntoView({ block: "nearest" });
+  };
+  input.addEventListener("input", lookup);
+  input.addEventListener("focus", () => render());
+  input.addEventListener("blur", () => setTimeout(close, 120));
+  input.addEventListener("places-changed", () => { if (document.activeElement === input) render(); });
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowDown") { e.preventDefault(); move(1); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); move(-1); }
+    else if (e.key === "Escape" && !list.hidden) { e.preventDefault(); e.stopPropagation(); close(); }
+    else if (e.key === "Enter" && active >= 0) { e.preventDefault(); e.stopImmediatePropagation(); pick(items[active]); }
+  });
+  addEventListener("resize", () => { if (!list.hidden) place(); });
+  addEventListener("scroll", () => { if (!list.hidden) place(); }, true);
+}
+
+function wirePlaces() {
+  let pending = null;
+  $("c-save-place").addEventListener("click", () => {
+    pending = state.commuteTo;
+    if (!pending) return;
+    $("place-address").textContent = pending.label;
+    $("place-alias").value = "";
+    message("place-msg", "");
+    $("place-dialog").showModal();
+  });
+  $("place-cancel").addEventListener("click", () => $("place-dialog").close());
+  $("place-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const alias = $("place-alias").value.trim();
+    if (!alias || !pending) return;
+    try {
+      await savePlace(alias, pending);
+      $("place-dialog").close();
+      toast(`Saved "${alias}". Pick it from the address box any time.`);
+    } catch (err) { message("place-msg", `Couldn't save: ${err.code || err.message}`, true); }
+  });
+  wirePlacesDialog();
+  setPlaces(localPlaces());
+}
+
+/** "My places": see, use, remove and add nicknamed addresses. */
+function wirePlacesDialog() {
+  let picked = null;
+  attachSuggest($("np-address"), (g) => {
+    picked = { label: g.label.slice(0, 120), lat: g.lat, lng: g.lng };
+    $("np-address").value = picked.label;
+    if (g.alias) message("np-msg", `That's already saved as "${g.alias}".`);
+    else $("np-alias").focus();
+  });
+  $("np-address").addEventListener("input", () => { picked = null; message("np-msg", ""); });
+  $("open-places").addEventListener("click", () => {
+    renderPlacesList();
+    picked = null;
+    $("add-place-form").reset();
+    message("np-msg", "");
+    $("places-dialog").showModal();
+    if (!state.places.length) $("np-address").focus();
+  });
+  $("places-close").addEventListener("click", () => $("places-dialog").close());
+  $("add-place-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const alias = $("np-alias").value.trim(), text = $("np-address").value.trim();
+    if (!alias || !text) return;
+    if (state.places.some((p) => p.alias.toLowerCase() === alias.toLowerCase())) {
+      message("np-msg", `You already have a place called "${alias}".`, true); return;
+    }
+    try {
+      let g = picked;
+      if (!g) {
+        message("np-msg", "Looking it up…");
+        g = await geocode(text);
+        if (!g) { message("np-msg", "Couldn't find that address in NYC.", true); return; }
+      }
+      if (findPlace(g)) { message("np-msg", `That address is already saved as "${findPlace(g).alias}".`, true); return; }
+      await savePlace(alias, g);
+      picked = null;
+      $("add-place-form").reset();
+      message("np-msg", `Saved "${alias}".`);
+      $("np-address").focus();
+    } catch (err) { message("np-msg", `Couldn't save: ${err.code || err.message}`, true); }
+  });
+}
+
+function renderPlacesList() {
+  $("places-empty").hidden = state.places.length > 0;
+  $("places-list").replaceChildren(...state.places.map((p) => {
+    const use = el("button", { type: "button", className: "btn ghost small", textContent: "Use" });
+    use.setAttribute("aria-label", `Filter by commute to ${p.alias}`);
+    use.addEventListener("click", () => {
+      setCommute({ label: p.label, lat: p.lat, lng: p.lng, minutes: Number($("c-minutes").value) });
+      $("places-dialog").close();
+    });
+    const remove = el("button", { type: "button", className: "btn ghost small", textContent: "Remove" });
+    remove.setAttribute("aria-label", `Remove ${p.alias}`);
+    remove.addEventListener("click", () => forgetPlace(p.id).catch((err) => toast(err.message)));
+    const on = state.commuteTo && samePlace(p, state.commuteTo);
+    return el("li", { className: on ? "on" : "" },
+      el("span", { className: "place-text" }, el("span", { className: "alias", textContent: p.alias }), el("span", { className: "addr-line", textContent: p.label })),
+      el("span", { className: "place-actions" }, use, remove));
+  }));
+}
+
 function wireCommuteFilter() {
+  attachSuggest($("c-place"), (g) => {
+    setCommute({ label: g.label.slice(0, 120), lat: g.lat, lng: g.lng, minutes: Number($("c-minutes").value) });
+  });
   const find = async () => {
     const q = $("c-place").value.trim();
     if (!q) return;
@@ -814,14 +1148,7 @@ function wirePrefs() {
     $("p-near-clear").hidden = !draft.near;
     message("p-near-msg", draft.near ? `Using: ${draft.near.label}` : "");
   };
-  const addHood = () => {
-    const input = $("p-hood-input");
-    const v = [...$("hoods").options].map((o) => o.value).find((h) => h.toLowerCase() === input.value.trim().toLowerCase());
-    if (v && !draft.hoods.includes(v)) { draft.hoods.push(v); renderHoods(); }
-    if (v) input.value = "";
-  };
-  $("p-hood-input").addEventListener("change", addHood);
-  $("p-hood-input").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); addHood(); } });
+  attachHoodPicker($("p-hood-input"), () => draft.hoods, (h) => { if (!draft.hoods.includes(h)) { draft.hoods.push(h); renderHoods(); } });
 
   const findNear = async () => {
     const q = $("p-near").value.trim();
@@ -834,6 +1161,11 @@ function wirePrefs() {
       renderNear();
     } catch (e) { message("p-near-msg", `Lookup failed: ${e.message}`, true); }
   };
+  attachSuggest($("p-near"), (g) => {
+    draft.near = { label: g.label.slice(0, 120), lat: g.lat, lng: g.lng, minutes: Number($("p-minutes").value) };
+    $("p-near").value = g.alias || g.label;
+    renderNear();
+  });
   $("p-near-find").addEventListener("click", findNear);
   $("p-near").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); findNear(); } });
   $("p-minutes").addEventListener("change", () => { if (draft.near) draft.near.minutes = Number($("p-minutes").value); });
@@ -1006,6 +1338,7 @@ function onUser(user) {
     $("sign-in").hidden = false;
     $("open-profile").hidden = true;
     setPrefs(null);
+    setPlaces(localPlaces());
     renderSaved();
     renderFeed();
     if (user) { $("verify-email").textContent = user.email; show("verify"); } // just created an email account
@@ -1019,6 +1352,7 @@ function onUser(user) {
   listenSearches();
   listenPrefs();
   listenAlertSettings();
+  listenPlaces();
   renderFeed();
 }
 
@@ -1078,6 +1412,19 @@ async function deleteSearch(id) {
 
 // ---- map ------------------------------------------------------------------
 
+/** Map dots: "separate" (every apartment, the default) or "building". */
+function grouping() {
+  const v = store.get("grouping");
+  return GROUPINGS.includes(v) ? v : "separate";
+}
+function showGrouping() {
+  const v = grouping();
+  for (const b of $("grouping").querySelectorAll("button")) {
+    b.classList.toggle("on", b.dataset.v === v);
+    b.setAttribute("aria-pressed", String(b.dataset.v === v));
+  }
+}
+
 let mapPromise;
 function ensureMap() {
   mapPromise ??= createMap($("map"), {
@@ -1086,7 +1433,13 @@ function ensureMap() {
     onSelect: (url) => openDetail(url),
     onSelectBuilding: (urls) => openBuilding(urls),
     onMove: (b) => { state.bounds = b; state.shown = PAGE; renderList(); },
-  }).then((m) => { state.map = m; m.setListings(state.filtered); return m; })
+    grouping: grouping(),
+  }).then((m) => {
+    state.map = m;
+    m.setListings(state.filtered);
+    if ($("show-hoods").checked) m.setNeighborhoods(true).catch((e) => toast(e.message));
+    return m;
+  })
     .catch((e) => { $("map").textContent = `Map unavailable: ${e.message}`; });
   return mapPromise;
 }
@@ -1097,16 +1450,11 @@ function wireUi() {
   wirePrefs();
   wireProfile();
   wireFeed();
-  const addHood = () => {
-    const input = $("hood-input");
-    const all = [...$("hoods").options].map((o) => o.value);
-    const v = all.find((h) => h.toLowerCase() === input.value.trim().toLowerCase());
-    if (v && !state.hoods.includes(v)) { state.hoods.push(v); renderChips(); refresh({ fit: true }); }
-    if (v) input.value = "";
-  };
+  wirePlaces();
   $("filters").addEventListener("submit", (e) => e.preventDefault());
-  $("hood-input").addEventListener("change", addHood);
-  $("hood-input").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); addHood(); } });
+  attachHoodPicker($("hood-input"), () => state.hoods, (h) => {
+    if (!state.hoods.includes(h)) { state.hoods.push(h); renderChips(); refresh({ fit: true }); }
+  });
   $("feat-filter").replaceChildren(...Object.entries(FEATURES).map(([k, label]) => {
     const b = el("button", { type: "button", className: "tog", textContent: label });
     b.dataset.v = k;
@@ -1126,7 +1474,7 @@ function wireUi() {
   }
   let t;
   for (const id of ["min", "max"]) $(id).addEventListener("input", () => { clearTimeout(t); t = setTimeout(refresh, 200); });
-  for (const id of ["delisted", "unflagged", "no-hazard", "prewar", "walk"]) $(id).addEventListener("change", refresh);
+  for (const id of ["delisted", "unflagged", "no-hazard", "prewar", "walk", "grade", "income"]) $(id).addEventListener("change", refresh);
   wireCommuteFilter();
   $("more").addEventListener("click", () => { state.shown += PAGE; renderList(); });
 
@@ -1179,6 +1527,26 @@ function wireUi() {
   setInterval(renderStatus, 60_000);
 
   $("days").addEventListener("change", refresh);
+  $("clear-filters").addEventListener("click", () => {
+    $("hood-input").value = "";
+    $("saved").value = "";
+    applyFilters({});
+    toast("Filters cleared");
+  });
+  // how dots are grouped on the map, remembered on this device
+  showGrouping();
+  $("grouping").addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-v]");
+    if (!b) return;
+    store.set("grouping", b.dataset.v);
+    showGrouping();
+    state.map?.setGrouping(b.dataset.v);
+  });
+  $("show-hoods").checked = store.get("hoods") === "on";
+  $("show-hoods").addEventListener("change", () => {
+    store.set("hoods", $("show-hoods").checked ? "on" : "off");
+    state.map?.setNeighborhoods($("show-hoods").checked).catch((e) => toast(e.message));
+  });
   $("hide-viewed").addEventListener("change", refresh);
   $("in-view").addEventListener("change", () => { state.shown = PAGE; renderList(); });
   $("detail").addEventListener("close", () => {
@@ -1192,10 +1560,9 @@ function wireUi() {
   closeOnOutsideClick();
 }
 
-// Pop-ups close when you click outside them (not the preferences form, so
-// a stray click doesn't throw away edits).
+// Every pop-up closes when you click outside it.
 function closeOnOutsideClick() {
-  for (const d of document.querySelectorAll("dialog.sheet:not(#prefs-dialog)")) {
+  for (const d of document.querySelectorAll("dialog")) {
     let downOutside = false;
     const outside = (e) => {
       const r = d.getBoundingClientRect();
@@ -1214,7 +1581,8 @@ function wireTheme() {
     const mode = root.dataset.theme || "auto";
     for (const b of $("theme-mode").querySelectorAll("button")) b.classList.toggle("on", b.dataset.v === mode);
     document.querySelector(`input[name=palette][value=${root.dataset.palette || "default"}]`).checked = true;
-    $("open-theme").textContent = mode === "dark" ? "☾" : mode === "light" ? "☀" : "◐";
+    const icon = mode === "dark" ? "☾" : mode === "light" ? "☀" : "◐";
+    $("open-theme").replaceChildren(el("span", { className: "theme-icon", textContent: icon }), el("span", { className: "theme-word", textContent: "Theme" }));
   };
   const apply = () => { render(); state.map?.setTheme(); };
   $("open-theme").addEventListener("click", () => { render(); $("theme-dialog").showModal(); });

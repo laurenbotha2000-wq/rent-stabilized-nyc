@@ -86,6 +86,29 @@ export function match(l, p) {
 }
 
 /** Look up an NYC address with NYC Planning's free geocoder. */
+/** Address suggestions as someone types (NYC GeoSearch autocomplete): [{ label, lat, lng }] */
+/**
+ * NYC's address search shouts the street part ("620 ATLANTIC AVENUE, Brooklyn, NY").
+ * Write it the normal way: "620 Atlantic Avenue, Brooklyn, NY". State codes stay capitals.
+ */
+export function niceAddress(label) {
+  const clean = (label || "").replace(/, USA$/, "");
+  return clean.split(", ").map((part, i, all) => (i === all.length - 1 && /^[A-Z]{2}$/.test(part)) ? part
+    : part.replace(/[A-Z][A-Z'’.-]*/g, (w) => /^(NE|NW|SE|SW)$/.test(w) ? w : w[0] + w.slice(1).toLowerCase())
+      .replace(/\b(\d+)(St|Nd|Rd|Th)\b/g, (_, n, s) => n + s.toLowerCase())).join(", ");
+}
+
+export async function suggest(text, signal) {
+  const url = `https://geosearch.planninglabs.nyc/v2/autocomplete?text=${encodeURIComponent(text)}`;
+  const res = await fetch(url, { signal });
+  if (!res.ok) throw new Error(`lookup failed (${res.status})`);
+  const seen = new Set();
+  return ((await res.json()).features || []).map((f) => ({
+    label: niceAddress(f.properties.label),
+    lng: f.geometry.coordinates[0], lat: f.geometry.coordinates[1],
+  })).filter((g) => g.label && !seen.has(g.label) && seen.add(g.label)).slice(0, 6);
+}
+
 export async function geocode(text) {
   const url = `https://geosearch.planninglabs.nyc/v2/search?size=1&text=${encodeURIComponent(text)}`;
   const res = await fetch(url);
@@ -93,5 +116,5 @@ export async function geocode(text) {
   const f = (await res.json()).features?.[0];
   if (!f) return null;
   const [lng, lat] = f.geometry.coordinates;
-  return { lat, lng, label: f.properties.label || text };
+  return { lat, lng, label: niceAddress(f.properties.label) || text };
 }

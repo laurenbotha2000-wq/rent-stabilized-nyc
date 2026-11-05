@@ -2,7 +2,7 @@
 // are sent from, allowing only "send email" (gmail.send), and store the
 // authorization in the admin-only config/email document.
 //
-//   node email-setup.mjs path/to/client_secret.json "Rent Stabilized NYC <alerts@example.com>"
+//   node email-setup.mjs path/to/client_secret.json "Stoopify <alerts@example.com>"
 //
 // client_secret.json: Google Cloud console → APIs & Services → Credentials →
 // Create credentials → OAuth client ID → Desktop app → Download JSON

@@ -6,6 +6,7 @@ rules_version = '2';
 //                                   (it uses the Admin SDK, which bypasses rules)
 //   users/{uid}/searches/{id}       only that user, validated shape and size
 //   users/{uid}/prefs/main          only that user, validated shape and size
+//   users/{uid}/places/{id}         that user's nicknamed addresses (NYC only, up to 20)
 //   users/{uid}/devices/{id}        that user's push subscriptions (browser push services only)
 //   users/{uid}/alerts/settings     email alerts, only to the account's own verified address
 //   config/*                        sync keys: no browser access at all (not matched below)
@@ -31,9 +32,11 @@ service cloud.firestore {
         && d.name is string && d.name.size() > 0 && d.name.size() <= 80
         && d.created_at is timestamp
         && f is map
-        && f.keys().hasOnly(['hoods', 'beds', 'min', 'max', 'reason', 'features', 'commute', 'walk', 'lines', 'delisted', 'unflagged', 'noHazard', 'prewar', 'days'])
+        && f.keys().hasOnly(['hoods', 'beds', 'min', 'max', 'reason', 'features', 'commute', 'walk', 'lines', 'delisted', 'unflagged', 'noHazard', 'prewar', 'days', 'grade', 'income'])
         && (!('noHazard' in f) || f.noHazard is bool)
         && (!('prewar' in f) || f.prewar is bool)
+        && (!('grade' in f) || f.grade in ['A', 'B', 'C', 'D'])
+        && (!('income' in f) || f.income in ['exclude', 'only'])
         && (!('days' in f) || (f.days is number && f.days >= 1 && f.days <= 90))
         && (!('commute' in f) || (f.commute is map
             && f.commute.keys().hasOnly(['label', 'lat', 'lng', 'minutes'])
@@ -98,6 +101,19 @@ service cloud.firestore {
         && request.resource.data.email == request.auth.token.email
         && (request.resource.data.emailOn == false || request.auth.token.email_verified == true)
         && request.resource.data.updated_at == request.time;
+    }
+
+    // Saved places with nicknames ("Work", "Mom's"), only that person, NYC only
+    match /users/{uid}/places/{id} {
+      allow get, delete: if isOwner(uid);
+      allow list: if isOwner(uid) && request.query.limit <= 20;
+      allow create: if isOwner(uid)
+        && request.resource.data.keys().hasOnly(['alias', 'label', 'lat', 'lng', 'created_at'])
+        && request.resource.data.alias is string && request.resource.data.alias.size() > 0 && request.resource.data.alias.size() <= 40
+        && request.resource.data.label is string && request.resource.data.label.size() <= 120
+        && request.resource.data.lat is number && request.resource.data.lat > 40.4 && request.resource.data.lat < 41.0
+        && request.resource.data.lng is number && request.resource.data.lng > -74.3 && request.resource.data.lng < -73.6
+        && request.resource.data.created_at == request.time;
     }
 
     // One private preferences document per person: users/{uid}/prefs/main

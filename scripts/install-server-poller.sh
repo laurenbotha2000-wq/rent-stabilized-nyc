@@ -72,7 +72,7 @@ fi
 
 cat > "/etc/systemd/system/$UNIT.service" <<EOF
 [Unit]
-Description=Rent Stabilized NYC sync (one run)
+Description=Stoopify sync (one run)
 After=network-online.target
 Wants=network-online.target
 
@@ -100,7 +100,7 @@ EOF
 
 cat > "/etc/systemd/system/$UNIT.timer" <<EOF
 [Unit]
-Description=Rent Stabilized NYC sync every 60 seconds
+Description=Stoopify sync every 60 seconds
 
 [Timer]
 OnBootSec=30

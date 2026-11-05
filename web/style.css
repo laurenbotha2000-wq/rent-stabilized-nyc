@@ -4,7 +4,7 @@
   --accent: #2a221b; --accent-ink: #f4efe4; --chip: #ebe3d2; --warn: #b3261e; --tag: #c8321e;
   --likely: #c8321e; --building: #34508f; --text: #5d7a33; --none: #a3967f;
   --b-building: #34508f; --b-building-bg: transparent;
-  --b-price: #9a5a12; --b-price-bg: transparent;
+  --b-price: #b02a18; --b-price-bg: transparent;
   --b-text: #4f6b28; --b-text-bg: transparent;
   --shadow: none;
   --serif: "Fraunces", Georgia, "Times New Roman", serif;
@@ -19,7 +19,7 @@
     --accent: #efe6d6; --accent-ink: #1b1713; --chip: #2f2821; --warn: #f2a194; --tag: #e8553c;
     --likely: #ef6a4f; --building: #8fa6e6; --text: #a8c873; --none: #7f7364;
     --b-building: #a9bbef; --b-building-bg: transparent;
-    --b-price: #e8b46a; --b-price-bg: transparent;
+    --b-price: #f08a72; --b-price-bg: transparent;
     --b-text: #b6d488; --b-text-bg: transparent;
     --shadow: none; color-scheme: dark;
   }
@@ -29,7 +29,7 @@
   --accent: #efe6d6; --accent-ink: #1b1713; --chip: #2f2821; --warn: #f2a194; --tag: #e8553c;
   --likely: #ef6a4f; --building: #8fa6e6; --text: #a8c873; --none: #7f7364;
   --b-building: #a9bbef; --b-building-bg: transparent;
-  --b-price: #e8b46a; --b-price-bg: transparent;
+  --b-price: #f08a72; --b-price-bg: transparent;
   --b-text: #b6d488; --b-text-bg: transparent;
   --shadow: none; color-scheme: dark;
 }
@@ -159,7 +159,7 @@ button, input, select { font: inherit; color: inherit; }
 .legend { position: absolute; left: 10px; bottom: 24px; background: var(--panel); border: 1px solid var(--line);
   border-radius: 10px; padding: 8px 10px; font-size: 12px; display: grid; gap: 3px; box-shadow: var(--shadow); }
 .legend span { display: flex; align-items: center; gap: 6px; }
-.dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; border: 1.5px solid #fff; }
+.dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; border: 1.5px solid var(--dot-ring); }
 .dot.likely { background: var(--likely); } .dot.building { background: var(--building); }
 .dot.text { background: var(--text); } .dot.none { background: var(--none); }
 .list-wrap { overflow: auto; padding: 14px 16px 30px; border-left: 1px solid var(--line); }
@@ -273,7 +273,6 @@ table.hist th { color: var(--muted); font-weight: 500; }
 .building-head { margin: 0 0 4px; font-size: 18px; }
 .building-list { display: grid; gap: 8px; margin-top: 12px; }
 .back-link { margin-bottom: 10px; }
-#theme-mode { width: max-content; }
 .swatches { display: inline-flex; gap: 3px; vertical-align: middle; margin-left: 4px; }
 .swatches i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
 
@@ -308,7 +307,7 @@ table.hist th { color: var(--muted); font-weight: 500; }
 .badge { font-family: var(--mono); font-size: 10px; font-weight: 500; text-transform: uppercase; letter-spacing: .06em;
   border: 1px solid currentColor; padding: 1px 6px; }
 /* the strongest signal gets the solid red tag */
-.badge.UNEVEN_PRICE { color: #fff; background: var(--tag); border-color: var(--tag); }
+.badge.UNEVEN_PRICE { color: var(--bg); background: var(--b-price); border-color: var(--b-price); } /* readable in every theme */
 .legend, .auth-card, dialog.sheet, .saved-item, .toast { border-radius: 0; box-shadow: none; }
 .legend { background: var(--bg); border-color: var(--ink); }
 dialog.sheet { border: 1px solid var(--ink); background: var(--bg); }
@@ -318,4 +317,161 @@ dialog h2, .building-head, .detail-head h2 { font-family: var(--serif); font-wei
 .auth-card { background: var(--bg); border-color: var(--ink); }
 .toast { background: var(--bg); border-color: var(--ink); box-shadow: none; }
 .view-tabs button { font-family: var(--mono); text-transform: uppercase; font-size: 11px; letter-spacing: .08em; }
-.card .commute, .match-score, .saved-item .count-now, .feed-item .yours { color: var(--tag); }
+.card .commute, .match-score, .saved-item .count-now, .feed-item .yours { color: var(--b-price); }
+
+/* ---- alignment: every filter control is one height, every label sits on one line ---- */
+.field > legend { float: left; width: 100%; margin: 0; } /* a floated legend lays out like the other labels */
+.commute-filter { position: relative; }
+.commute-filter .msg { position: absolute; top: 100%; left: 0; margin-top: 2px; white-space: nowrap; }
+.commute-filter .msg:empty { display: none; }
+.filters .btn, .filters .seg, .filters select, .filters input:not([type="checkbox"]):not([type="radio"]) { height: 34px; }
+.filters .btn { display: inline-flex; align-items: center; justify-content: center; }
+.field.small:has(#days) { width: 132px; }
+.commute-filter select { min-width: 100px; }
+.top { min-height: 56px; }
+.top .account .btn, .top .avatar { height: 32px; min-width: 32px; display: inline-flex; align-items: center; justify-content: center; }
+.top .avatar { width: 32px; padding: 0; }
+.list-head { min-height: 30px; }
+.list-opts label input, .legend input { margin: 0; }
+.legend-toggle { display: flex; align-items: center; gap: 6px; margin-top: 4px; padding-top: 5px; border-top: 1px solid var(--line); cursor: pointer; }
+@media (max-width: 820px) {
+  .top { display: grid; grid-template-columns: 1fr; gap: 8px; padding-top: 10px; padding-bottom: 10px; }
+  .top .brand h1 { font-size: 19px; white-space: nowrap; }
+  .status { min-width: 0; }
+  .account { flex-wrap: nowrap; gap: 8px; }
+  .account .btn.small { padding: 0 10px; font-size: 10.5px; white-space: nowrap; }
+  .field.small:has(#days) { width: calc(50% - 8px); }
+  .legend { bottom: 40px; left: 8px; font-size: 9.5px; padding: 6px 8px; }
+}
+
+/* theme pop-up: three equal appearance buttons, palettes as aligned rows */
+.theme-group { display: grid; gap: 8px; margin-top: 16px; }
+.theme-label { margin: 0; }
+.theme-seg { display: grid; grid-template-columns: repeat(3, 1fr); width: 100%; height: 36px; }
+.theme-seg button { display: flex; align-items: center; justify-content: center; }
+.palette-list { display: grid; }
+.palette-opt { display: grid; grid-template-columns: 16px 1fr auto; align-items: center; gap: 12px; padding: 10px 12px;
+  border: 1px solid var(--line); margin-top: -1px; cursor: pointer; }
+.palette-opt:first-child { margin-top: 0; }
+.palette-opt:hover { background: var(--panel); }
+.palette-opt:has(input:checked) { border-color: var(--ink); background: var(--panel); position: relative; }
+.palette-opt input { margin: 0; width: 16px; height: 16px; accent-color: var(--ink); }
+.palette-name { display: grid; line-height: 1.25; font-weight: 500; }
+.palette-name small { font-family: var(--mono); font-size: 10.5px; color: var(--muted); font-weight: 400; }
+.palette-opt .swatches { display: grid; grid-template-columns: repeat(4, 14px); gap: 4px; margin: 0; }
+.palette-opt .swatches i { width: 14px; height: 14px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(0,0,0,.12); }
+.theme-group .small-text { margin-top: 4px; }
+/* subway commute: room for the place, the time and the button */
+.commute-filter { flex: 1 1 380px; max-width: 520px; }
+.commute-filter .row > input { flex: 1 1 120px; min-width: 100px; }
+.commute-filter .row > .btn { flex: none; }
+.commute-filter { min-width: 268px; }
+.legend-toggle.tight { margin-top: 0; padding-top: 0; border-top: 0; }
+
+/* address suggestions (saved places first) */
+.suggest { position: fixed; z-index: 50; margin: 0; padding: 0; list-style: none; background: var(--bg);
+  border: 1px solid var(--ink); max-height: 320px; overflow: auto; }
+.suggest li { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 8px; padding: 8px 10px;
+  cursor: pointer; border-top: 1px solid var(--line); font-size: 13px; }
+.suggest li:first-child { border-top: 0; }
+.suggest li[aria-selected="true"], .suggest li:hover { background: var(--panel); }
+.suggest .alias { font-weight: 600; }
+.suggest .alias::before { content: "★ "; color: var(--b-price); }
+.suggest .addr-line { display: block; color: var(--muted); font-family: var(--mono); font-size: 11px; }
+.suggest .forget { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 16px; padding: 0 4px; }
+.suggest .note { cursor: default; color: var(--muted); font-family: var(--mono); font-size: 11px; }
+.commute-filter .save-place { position: absolute; top: 100%; right: 0; margin-top: 2px; font-size: 12px; }
+
+/* brownstone logo */
+:root { --brownstone: #7b4a33; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --brownstone: #c48a68; } }
+:root[data-theme="dark"] { --brownstone: #c48a68; }
+svg.logo { width: 26px; height: 26px; background: none; border-radius: 0; flex: none; overflow: visible;
+  fill: none; stroke: var(--brownstone); stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+svg.logo::after { content: none; }
+.brand.big svg.logo { width: 40px; height: 40px; stroke-width: 1.4; }
+
+/* toolbar: two even rows. Row 1 = the apartment, row 2 = commute + saved searches */
+.filters { flex-direction: column; flex-wrap: nowrap; align-items: stretch; gap: 14px; padding: 14px 20px; }
+.filter-row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px 18px; min-width: 0; }
+.filter-row > .field { flex: none; }
+.filter-row > .field.grow { flex: 1 1 240px; }
+#filter-main > .field.grow { max-width: 460px; }
+.filter-row > .commute-filter { flex: 1 1 380px; max-width: 560px; }
+.filter-row > .field.saved { margin-left: auto; }
+.filter-row > .more-btn { margin-left: auto; }
+.field.saved .row { flex-wrap: nowrap; }
+.field.saved select { width: 180px; max-width: 180px; }
+@media (max-width: 820px) {
+  .filters { gap: 12px; padding: 12px 16px; }
+  #app.show-filters .filters { display: flex; }
+  .filter-row { gap: 12px 16px; }
+  .filter-row > .field.grow, .filter-row > .commute-filter, #filter-main > .field.grow { flex: 1 1 100%; max-width: none; }
+  .filter-row > .field.saved, .filter-row > .more-btn { margin-left: 0; }
+}
+
+/* "My places" link sits on the commute label line */
+.commute-filter > .places-link { position: absolute; top: 0; right: 0; font-family: var(--mono); font-size: 11px;
+  letter-spacing: .04em; text-transform: uppercase; line-height: 1.3; text-decoration: none; color: var(--b-price); }
+.commute-filter > .places-link:hover { text-decoration: underline; }
+.places-link .count { font-size: 10px; }
+
+/* map dots switch: top-left on the map */
+.map-mode { position: absolute; top: 10px; left: 10px; z-index: 2; display: flex; background: var(--bg); border: 1px solid var(--ink); padding: 3px; }
+.map-mode > span { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.map-mode .seg { height: 28px; border-radius: 0; }
+.map-mode .seg button { font-size: 12px; padding: 0 10px; white-space: nowrap; }
+@media (max-width: 820px) {
+  .map-mode { top: 8px; left: 8px; }
+  .map-mode .seg { flex: 1; }
+  .map-mode .seg button { flex: 1; padding: 0 6px; font-size: 11px; }
+}
+
+/* My places dialog */
+.places-list { list-style: none; margin: 14px 0 0; padding: 0; display: grid; }
+.places-list li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0;
+  border-top: 1px solid var(--line); }
+.places-list li:last-child { border-bottom: 1px solid var(--line); }
+.places-list li.on .alias::after { content: " · in use"; color: var(--muted); font-weight: 400; font-size: 12px; }
+.place-text { display: grid; min-width: 0; }
+.place-text .alias { font-weight: 600; }
+.place-text .alias::before { content: "★ "; color: var(--b-price); }
+.place-text .addr-line { color: var(--muted); font-family: var(--mono); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.place-actions { display: flex; gap: 6px; flex: none; }
+.add-place { display: grid; gap: 12px; margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--ink); }
+.add-place h3 { margin: 0; font-family: var(--serif); font-weight: 500; font-size: 18px; }
+.add-place .field input { width: 100%; box-sizing: border-box; }
+.add-place .msg:empty { display: none; }
+
+/* income-restricted tag: outlined in brownstone so it reads as info, not a warning */
+.badge.income { color: var(--brownstone); background: transparent; border: 1px solid var(--brownstone); }
+
+/* ring around map dots: dark on the light map, white on the dark map, so pale colors still stand out */
+:root { --dot-ring: #2a221b; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --dot-ring: #ffffff; } }
+:root[data-theme="dark"] { --dot-ring: #ffffff; }
+
+/* theme button: icon plus the word, icon only on phones */
+#open-theme { gap: 6px; }
+#open-theme .theme-icon { font-size: 15px; line-height: 1; }
+@media (max-width: 820px) { #open-theme .theme-word { display: none; } }
+
+/* nothing in the toolbar floats out of it: messages under the commute box take their own line */
+.filter-row { align-items: flex-start; }
+.commute-filter .msg, .commute-filter .save-place { position: static; margin: 4px 0 0; white-space: normal; }
+.commute-filter .save-place { align-self: flex-start; }
+.more-btn .row { flex-wrap: nowrap; gap: 8px; }
+#clear-filters .count { background: var(--chip); color: var(--ink); }
+
+/* neighborhood list */
+.hood-suggest { max-height: 320px; overflow-y: auto; }
+.hood-suggest li { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.hood-suggest .hood-n { font-family: var(--mono); font-size: 11px; color: var(--muted); white-space: nowrap; }
+
+/* building grade: A/B calm, C neutral, D/F in the warning red */
+.badge.grade { font-weight: 600; border: 1px solid currentColor; background: transparent; }
+.grade-A, .grade-B { color: var(--b-text); }
+.grade-C { color: var(--muted); }
+.grade-D, .grade-F { color: var(--b-price); }
+.badge.grade-F { color: var(--bg); background: var(--b-price); border-color: var(--b-price); }
+.grade-letter { font-family: var(--mono); font-size: 15px; }

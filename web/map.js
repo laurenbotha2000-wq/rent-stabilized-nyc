@@ -2,7 +2,8 @@
 // configured; otherwise MapLibre with free OpenFreeMap tiles (no key).
 // Units in the same building share one marker showing how many there are.
 //   const map = await createMap(el, { googleKey, googleMapId, onSelect, onSelectBuilding, onMove });
-//   map.setListings(listings);  map.focus(listing);  map.setTheme();
+//   map.setListings(listings);  map.focus(listing);  map.setTheme();  map.setGrouping(mode);
+//   map.setNeighborhoods(on)  — NYC neighborhood outlines (2020 NTAs, NYC Open Data), loaded on first use
 // onMove(bounds) fires after the person pans or zooms: { west, south, east, north }.
 
 const NYC = { lat: 40.7128, lng: -73.97 };
@@ -19,6 +20,7 @@ export function category(l) {
 }
 
 const RANK = { likely: 0, building: 1, text: 2, none: 3 };
+const CLUSTER_MAX_ZOOM = 9; // group dots only when zoomed out past the whole city
 
 /** Same building: tax lot when known, else the exact spot. */
 export function buildingKey(l) {
@@ -41,6 +43,34 @@ function buildings(list) {
   }));
 }
 
+/**
+ * Dots for the chosen setting (nothing is ever clustered):
+ *   "separate" — one per apartment; units in the same building fan out in a small ring
+ *   "building" — one per building, numbered when it has several apartments
+ */
+function dots(list, mode) {
+  const bs = buildings(list);
+  if (mode !== "separate") return bs;
+  return bs.flatMap((b) => {
+    const n = b.units.length;
+    if (n === 1) return [b];
+    const r = 0.00009 * (1 + n / 10); // about 10 m, a bit more for big buildings
+    const k = Math.cos((b.lat * Math.PI) / 180);
+    return b.units.map((l, i) => {
+      const a = (2 * Math.PI * i) / n;
+      return { lat: b.lat + r * Math.sin(a), lng: b.lng + (r * Math.cos(a)) / k, units: [l], cat: category(l) };
+    });
+  });
+}
+export const GROUPINGS = ["building", "separate"];
+
+const HOODS_URL = "/neighborhoods.json";
+let hoodsData;
+const loadHoods = () => (hoodsData ??= fetch(HOODS_URL).then((r) => {
+  if (!r.ok) throw new Error(`Couldn't load neighborhoods (${r.status})`);
+  return r.json();
+}));
+
 const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(`--${name}`).trim();
 const dark = () => {
   const t = document.documentElement.dataset.theme;
@@ -62,7 +92,8 @@ export async function createMap(el, opts) {
 
 // ---- Google Maps --------------------------------------------------------
 
-async function googleMap(el, { googleKey, googleMapId, onSelect, onSelectBuilding, onMove }) {
+async function googleMap(el, { googleKey, googleMapId, onSelect, onSelectBuilding, onMove, grouping = "separate" }) {
+  const clustered = false;
   await new Promise((resolve, reject) => {
     window.__gmReady = resolve;
     const p = new URLSearchParams({ key: googleKey, v: "weekly", libraries: "marker", loading: "async", callback: "__gmReady" });
@@ -83,26 +114,37 @@ async function googleMap(el, { googleKey, googleMapId, onSelect, onSelectBuildin
       onMove?.({ west: sw.lng(), south: sw.lat(), east: ne.lng(), north: ne.lat() });
     }
   });
-  const clusterer = new markerClusterer.MarkerClusterer({ map, markers: [] });
-  let last = [];
+  const clusterer = new markerClusterer.MarkerClusterer({ map, markers: [],
+    algorithm: new markerClusterer.SuperClusterAlgorithm({ maxZoom: CLUSTER_MAX_ZOOM, radius: 50 }) });
+  let last = [], plain = [];
 
   return {
     setListings(list) {
       last = list;
       clusterer.clearMarkers();
+      for (const m of plain) m.map = null;
+      plain = [];
       const made = [];
-      for (const b of buildings(list)) {
+      for (const b of dots(list, grouping)) {
         const n = b.units.length;
-        const pin = new PinElement({ background: css(b.cat), borderColor: "#ffffff", glyphColor: "#ffffff",
+        const pin = new PinElement({ background: css(b.cat), borderColor: "#ffffff", glyphColor: "#1b1713",
           glyph: n > 1 ? String(n) : undefined, scale: n > 1 ? 1.1 : 0.9 });
         const m = new AdvancedMarkerElement({ position: { lat: b.lat, lng: b.lng }, content: pin.element,
           title: n > 1 ? `${n} apartments at ${b.units[0].address || "this building"}` : b.units[0].address || "" });
         m.addListener("click", () => (n > 1 ? onSelectBuilding(b.units.map((l) => l.url)) : onSelect(b.units[0].url)));
         made.push(m);
       }
-      clusterer.addMarkers(made);
+      if (clustered) clusterer.addMarkers(made);
+      else { for (const m of made) m.map = map; plain = made; }
     },
     setTheme() { this.setListings(last); },
+    setGrouping(mode) { grouping = mode; this.setListings(last); },
+    async setNeighborhoods(on) {
+      map.data.forEach((f) => map.data.remove(f));
+      if (!on) return;
+      map.data.addGeoJson(await loadHoods());
+      map.data.setStyle({ fillOpacity: 0, strokeColor: css("ink"), strokeOpacity: 0.45, strokeWeight: 1, clickable: false });
+    },
     focus(l) {
       if (l?.lat == null) return;
       map.panTo({ lat: l.lat, lng: l.lng });
@@ -122,7 +164,8 @@ async function googleMap(el, { googleKey, googleMapId, onSelect, onSelectBuildin
 
 // ---- MapLibre + OpenFreeMap --------------------------------------------
 
-async function maplibreMap(el, { onSelect, onSelectBuilding, onMove }) {
+async function maplibreMap(el, { onSelect, onSelectBuilding, onMove, grouping = "separate" }) {
+  const clustered = false; let last = [];
   const link = Object.assign(document.createElement("link"), { rel: "stylesheet", href: `${MAPLIBRE}/maplibre-gl.css` });
   document.head.append(link);
   await loadScript(`${MAPLIBRE}/maplibre-gl.js`);
@@ -139,13 +182,34 @@ async function maplibreMap(el, { onSelect, onSelectBuilding, onMove }) {
   map.addControl(new maplibregl.NavigationControl({ showCompass: true, visualizePitch: true }), "top-right");
 
   let data = { type: "FeatureCollection", features: [] };
+  let hoods = null; // outlines, once turned on
+
+  // neighborhood outlines and names, drawn under the dots
+  const addHoods = () => {
+    if (!hoods || map.getSource("hoods")) return;
+    const before = map.getLayer("clusters") ? "clusters" : undefined;
+    map.addSource("hoods", { type: "geojson", data: hoods });
+    map.addLayer({ id: "hoods-fill", type: "fill", source: "hoods",
+      paint: { "fill-color": css("ink"), "fill-opacity": ["case", ["==", ["get", "type"], 0], 0.025, 0.06] } }, before);
+    map.addLayer({ id: "hoods-line", type: "line", source: "hoods",
+      paint: { "line-color": css("ink"), "line-opacity": 0.45, "line-width": ["interpolate", ["linear"], ["zoom"], 10, 0.6, 14, 1.4] } }, before);
+    map.addLayer({ id: "hoods-label", type: "symbol", source: "hoods", minzoom: 11, filter: ["==", ["get", "type"], 0],
+      layout: { "text-field": ["get", "name"], "text-size": ["interpolate", ["linear"], ["zoom"], 11, 10, 15, 13],
+        "text-font": ["Noto Sans Regular"], "text-max-width": 8, "text-padding": 4 },
+      paint: { "text-color": css("muted"), "text-halo-color": css("bg"), "text-halo-width": 1.4 } }, before);
+  };
+  const removeHoods = () => {
+    for (const id of ["hoods-label", "hoods-line", "hoods-fill"]) if (map.getLayer(id)) map.removeLayer(id);
+    if (map.getSource("hoods")) map.removeSource("hoods");
+  };
   // layers are added again whenever the base map style changes (light/dark)
   const addLayers = () => {
     const colors = ["match", ["get", "cat"],
       "likely", css("likely"), "building", css("building"), "text", css("text"), css("none")];
     map.addSource("listings", {
       type: "geojson", data,
-      cluster: true, clusterRadius: 40, clusterMaxZoom: 14,
+      // only group dots when zoomed out past the whole city; at city view and closer every building shows
+      cluster: clustered, clusterRadius: 28, clusterMaxZoom: CLUSTER_MAX_ZOOM,
       clusterProperties: { units: ["+", ["get", "n"]] }, // apartments, not buildings
     });
     map.addLayer({
@@ -165,7 +229,7 @@ async function maplibreMap(el, { onSelect, onSelectBuilding, onMove }) {
       id: "points", type: "circle", source: "listings", filter: ["!", ["has", "point_count"]],
       paint: {
         "circle-color": colors, "circle-radius": ["case", [">", ["get", "n"], 1], 11, 7],
-        "circle-stroke-width": 2, "circle-stroke-color": "#ffffff",
+        "circle-stroke-width": dark() ? 2 : 1.5, "circle-stroke-color": css("dot-ring"),
       },
     });
     // a building with several units shows how many
@@ -173,10 +237,11 @@ async function maplibreMap(el, { onSelect, onSelectBuilding, onMove }) {
       id: "point-count", type: "symbol", source: "listings",
       filter: ["all", ["!", ["has", "point_count"]], [">", ["get", "n"], 1]],
       layout: { "text-field": ["to-string", ["get", "n"]], "text-size": 11, "text-font": ["Noto Sans Bold"], "text-allow-overlap": true },
-      paint: { "text-color": "#ffffff", "text-halo-color": "rgba(0,0,0,.35)", "text-halo-width": 1 },
+      // dark number with a light halo reads on every dot color, yellow included
+      paint: { "text-color": "#1b1713", "text-halo-color": "rgba(255,255,255,.9)", "text-halo-width": 1.6 },
     });
   };
-  map.on("style.load", addLayers);
+  map.on("style.load", () => { addLayers(); addHoods(); });
   await new Promise((r) => map.once("load", r));
 
   map.on("click", "clusters", async (e) => {
@@ -202,9 +267,10 @@ async function maplibreMap(el, { onSelect, onSelectBuilding, onMove }) {
 
   return {
     setListings(list) {
+      last = list;
       data = {
         type: "FeatureCollection",
-        features: buildings(list).map((b) => ({
+        features: dots(list, grouping).map((b) => ({
           type: "Feature",
           geometry: { type: "Point", coordinates: [b.lng, b.lat] },
           properties: { urls: JSON.stringify(b.units.map((l) => l.url)), n: b.units.length, cat: b.cat },
@@ -212,9 +278,17 @@ async function maplibreMap(el, { onSelect, onSelectBuilding, onMove }) {
       };
       map.getSource("listings")?.setData(data);
     },
+    async setNeighborhoods(on) {
+      if (!on) { hoods = null; removeHoods(); return; }
+      hoods = await loadHoods();
+      // add now, or once the map finishes what it's loading (addHoods skips a second add)
+      if (map.isStyleLoaded()) addHoods(); else map.once("idle", addHoods);
+    },
+    setGrouping(mode) { grouping = mode; this.setListings(last); },
     setTheme() {
       if (styleUrl() !== styled) { styled = styleUrl(); map.setStyle(styled, { diff: false }); return; } // layers re-added on style.load
       if (!map.getLayer("points")) return; // a new style is still loading; its layers pick up the colors
+      if (map.getSource("hoods")) { removeHoods(); addHoods(); } // outline and label colors follow the theme
       map.setPaintProperty("points", "circle-color", ["match", ["get", "cat"],
         "likely", css("likely"), "building", css("building"), "text", css("text"), css("none")]);
     },

@@ -18,7 +18,7 @@ self.addEventListener("activate", (e) => {
 self.addEventListener("push", (e) => {
   let m = {};
   try { m = e.data ? e.data.json() : {}; } catch { m = { body: e.data?.text() }; }
-  e.waitUntil(self.registration.showNotification(m.title || "Rent Stabilized NYC", {
+  e.waitUntil(self.registration.showNotification(m.title || "Stoopify", {
     body: m.body || "New apartments match your saved search.",
     tag: m.tag, renotify: Boolean(m.tag),
     icon: "/icons/icon-192.png", badge: "/icons/icon-192.png",

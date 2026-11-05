@@ -142,7 +142,7 @@ async function sendEmail(token, from, to, subject, sections) {
   const html = `<div style="font:15px/1.5 -apple-system,Segoe UI,sans-serif;color:#1d2433">${sections.map((s) =>
     `<h3 style="margin:16px 0 6px">${esc(s.name)}</h3><ul style="padding-left:18px;margin:0">${s.lines.map((l) =>
       `<li><a href="${esc(l.url)}">${esc(l.text)}</a></li>`).join("")}${s.more ? `<li>and ${s.more} more on the site</li>` : ""}</ul>`).join("")}
-    <p><a href="${SITE}">See them all on Rent Stabilized NYC</a></p>
+    <p><a href="${SITE}">See them all on Stoopify</a></p>
     <p style="color:#6b7280;font-size:12px">${esc(footer)}</p></div>`;
   const boundary = `b${Date.now().toString(36)}`;
   const mime = [
