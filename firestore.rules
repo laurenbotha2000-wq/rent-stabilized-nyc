@@ -32,17 +32,24 @@ service cloud.firestore {
         && d.name is string && d.name.size() > 0 && d.name.size() <= 80
         && d.created_at is timestamp
         && f is map
-        && f.keys().hasOnly(['hoods', 'beds', 'min', 'max', 'reason', 'features', 'commute', 'walk', 'lines', 'delisted', 'unflagged', 'noHazard', 'prewar', 'days', 'grade', 'income'])
+        && f.keys().hasOnly(['hoods', 'beds', 'min', 'max', 'reason', 'features', 'commute', 'commute2', 'walk', 'lines', 'delisted', 'unflagged', 'noHazard', 'prewar', 'days', 'grade', 'income', 'light', 'superfund'])
         && (!('noHazard' in f) || f.noHazard is bool)
         && (!('prewar' in f) || f.prewar is bool)
         && (!('grade' in f) || f.grade in ['A', 'B', 'C', 'D'])
         && (!('income' in f) || f.income in ['exclude', 'only'])
+        && (!('light' in f) || f.light in ['bright', 'some'])
+        && (!('superfund' in f) || f.superfund == 'exclude')
         && (!('days' in f) || (f.days is number && f.days >= 1 && f.days <= 90))
         && (!('commute' in f) || (f.commute is map
             && f.commute.keys().hasOnly(['label', 'lat', 'lng', 'minutes'])
             && f.commute.label is string && f.commute.label.size() <= 120
             && f.commute.lat is number && f.commute.lng is number
             && f.commute.minutes is number && f.commute.minutes >= 5 && f.commute.minutes <= 120))
+        && (!('commute2' in f) || (f.commute2 is map
+            && f.commute2.keys().hasOnly(['label', 'lat', 'lng', 'minutes'])
+            && f.commute2.label is string && f.commute2.label.size() <= 120
+            && f.commute2.lat is number && f.commute2.lng is number
+            && f.commute2.minutes is number && f.commute2.minutes >= 5 && f.commute2.minutes <= 120))
         && (!('walk' in f) || (f.walk is number && f.walk > 0 && f.walk <= 30))
         && (!('lines' in f) || (f.lines is list && f.lines.size() <= 30))
         && (!('hoods' in f) || (f.hoods is list && f.hoods.size() <= 50))

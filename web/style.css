@@ -475,3 +475,25 @@ svg.logo::after { content: none; }
 .grade-D, .grade-F { color: var(--b-price); }
 .badge.grade-F { color: var(--bg); background: var(--b-price); border-color: var(--b-price); }
 .grade-letter { font-family: var(--mono); font-size: 15px; }
+
+/* daylight estimate and Superfund badges */
+.badge.light { background: transparent; border: 1px dashed currentColor; color: var(--muted); }
+.badge.light-bright { color: var(--b-price); border-style: solid; }
+.badge.superfund { color: var(--bg); background: var(--ink); border: 1px solid var(--ink); }
+.legend .swatch.superfund { display: inline-block; width: 12px; height: 10px; vertical-align: -1px; margin-right: 6px;
+  border: 1.4px dashed var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); }
+
+/* building record: one-line summary that expands */
+details.bldg { border: 1px solid var(--line); background: var(--panel); }
+details.bldg > summary.bldg-summary { display: flex; align-items: center; gap: 10px; padding: 8px 10px; cursor: pointer;
+  list-style: none; font-size: 14px; }
+details.bldg > summary.bldg-summary::-webkit-details-marker { display: none; }
+details.bldg > summary.bldg-summary::after { content: "Details ▾"; margin-left: auto; font-family: var(--mono);
+  font-size: 11px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
+details.bldg[open] > summary.bldg-summary::after { content: "Hide ▴"; }
+details.bldg > summary.bldg-summary:hover { background: var(--chip); }
+details.bldg > summary .grade-letter { flex: none; }
+details.bldg > :not(summary) { margin-left: 10px; margin-right: 10px; }
+details.bldg .facts { margin-top: 4px; }
+details.how > summary { cursor: pointer; font-size: 13px; color: var(--muted); margin: 6px 0; }
+details.how p { font-size: 13px; margin: 0 0 6px; }

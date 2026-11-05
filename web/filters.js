@@ -5,7 +5,7 @@ import { commute, nearby, stationsReady } from "./commute.js";
 
 export const asList = (v) => (v === undefined || v === "" ? [] : Array.isArray(v) ? v : [v]);
 
-const KEYS = ["hoods", "beds", "min", "max", "reason", "features", "commute", "walk", "lines", "delisted", "unflagged", "noHazard", "prewar", "days", "grade", "income"];
+const KEYS = ["hoods", "beds", "min", "max", "reason", "features", "commute", "commute2", "walk", "lines", "delisted", "unflagged", "noHazard", "prewar", "days", "grade", "income", "light", "superfund"];
 /** A saved search's filters in today's shape. */
 export function normalize(f) {
   const o = {};
@@ -62,6 +62,9 @@ export function matches(l, f) {
   if (f.grade) { const g = grade(l); if (!g || GRADES.indexOf(g.letter) > GRADES.indexOf(f.grade)) return false; }
   if (f.income === "exclude" && l.income_restricted) return false;
   if (f.income === "only" && !l.income_restricted) return false;
+  if (f.light === "bright" && l.light?.level !== "bright") return false;
+  if (f.light === "some" && !["bright", "some"].includes(l.light?.level)) return false;
+  if (f.superfund === "exclude" && l.superfund) return false;
   if (f.days && !(l.first_seen && Date.now() - new Date(l.first_seen).getTime() <= f.days * DAY)) return false;
   // subway filters need station data; until it loads they don't exclude anything
   if ((f.walk || f.lines) && stationsReady()) {
@@ -69,6 +72,10 @@ export function matches(l, f) {
     const reach = nearby(l, 8, walkMiles(f.walk || 15));
     if (!reach.length) return false;
     if (f.lines && !reach.some((s) => s.routes.some((r) => f.lines.includes(r)))) return false;
+  }
+  if (f.commute2) {
+    const c = commuteFor(l, f.commute2);
+    if (!c || c.minutes > f.commute2.minutes) return false;
   }
   if (f.commute) {
     const c = commuteFor(l, f.commute);

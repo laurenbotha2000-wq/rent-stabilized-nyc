@@ -11,7 +11,7 @@ const root = new URL("..", import.meta.url).pathname;
 const src = `${root}web`, out = `${root}dist`;
 rmSync(out, { recursive: true, force: true });
 mkdirSync(out);
-for (const f of ["index.html", "theme.js", "manifest.webmanifest", "stations.json", "neighborhoods.json", "icons"]) cpSync(`${src}/${f}`, `${out}/${f}`, { recursive: true });
+for (const f of ["index.html", "theme.js", "manifest.webmanifest", "stations.json", "neighborhoods.json", "superfund.json", "icons"]) cpSync(`${src}/${f}`, `${out}/${f}`, { recursive: true });
 
 await build({
   entryPoints: [`${src}/app.js`],

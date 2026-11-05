@@ -112,7 +112,7 @@ async function googleMap(el, { googleKey, googleMapId, onSelect, onSelectBuildin
   const map = new Map(el, {
     center: NYC, zoom: 11, mapId: googleMapId || "DEMO_MAP_ID",
     colorScheme: dark() ? "DARK" : "LIGHT", streetViewControl: false, mapTypeControl: false, clickableIcons: false,
-    rotateControl: true,
+    rotateControl: true, tilt: 0, tiltInteractionEnabled: false,
   });
   map.addListener("idle", () => {
     const b = map.getBounds();
@@ -191,9 +191,12 @@ async function maplibreMap(el, { onSelect, onSelectBuilding, onMove, grouping = 
     center: [NYC.lng, NYC.lat],
     zoom: 10.5,
     attributionControl: { compact: true },
+    // flat map only: no tilting by right-drag, ctrl-drag or two-finger drag
+    maxPitch: 0, pitchWithRotate: false,
   });
+  map.touchPitch.disable();
   // the compass shows which way is north; click it to turn the map back north-up
-  map.addControl(new maplibregl.NavigationControl({ showCompass: true, visualizePitch: true }), "top-right");
+  map.addControl(new maplibregl.NavigationControl({ showCompass: true, visualizePitch: false }), "top-right");
 
   let data = { type: "FeatureCollection", features: [] };
   let hoods = null; // outlines, once turned on
@@ -255,7 +258,22 @@ async function maplibreMap(el, { onSelect, onSelectBuilding, onMove, grouping = 
       paint: { "text-color": "#1b1713", "text-halo-color": "rgba(255,255,255,.9)", "text-halo-width": 1.6 },
     });
   };
-  map.on("style.load", () => { addLayers(); addHoods(); });
+  // federal Superfund cleanup sites (U.S. EPA boundaries): faint red areas under the dots
+  let superfund = null;
+  const addSuperfund = async () => {
+    superfund ??= await fetch("/superfund.json").then((r) => (r.ok ? r.json() : null)).catch(() => null);
+    if (!superfund || map.getSource("superfund") || !map.getLayer("points")) return;
+    map.addSource("superfund", { type: "geojson", data: superfund });
+    map.addLayer({ id: "superfund-fill", type: "fill", source: "superfund",
+      paint: { "fill-color": css("warn"), "fill-opacity": 0.14 } }, "points");
+    map.addLayer({ id: "superfund-line", type: "line", source: "superfund",
+      paint: { "line-color": css("warn"), "line-width": 1.4, "line-dasharray": [2, 1.5] } }, "points");
+    map.addLayer({ id: "superfund-label", type: "symbol", source: "superfund", minzoom: 13,
+      layout: { "text-field": ["concat", "Superfund site: ", ["get", "name"]], "text-size": 11,
+        "text-font": ["Noto Sans Regular"], "text-max-width": 10 },
+      paint: { "text-color": css("warn"), "text-halo-color": css("bg"), "text-halo-width": 1.4 } }, "points");
+  };
+  map.on("style.load", () => { addLayers(); addHoods(); addSuperfund(); });
   await new Promise((r) => map.once("load", r));
 
   map.on("click", "clusters", async (e) => {

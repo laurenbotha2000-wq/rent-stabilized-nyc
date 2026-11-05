@@ -136,6 +136,19 @@
           </div>
           <span class="msg" id="c-msg"></span>
           <button type="button" class="link save-place" id="c-save-place" hidden>Save place</button>
+          <button type="button" class="link" id="c2-add">+ And a second place (e.g. a partner's work)</button>
+          <div class="row" id="c2-row" hidden>
+            <input id="c2-place" placeholder="Second address: both commutes must fit" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-label="Second commute address">
+            <select id="c2-minutes" aria-label="Longest second commute">
+              <option value="20">≤ 20 min</option>
+              <option value="30" selected>≤ 30 min</option>
+              <option value="45">≤ 45 min</option>
+              <option value="60">≤ 60 min</option>
+            </select>
+            <button type="button" class="btn ghost small" id="c2-set">Set</button>
+            <button type="button" class="btn ghost small" id="c2-remove">Remove</button>
+          </div>
+          <span class="msg" id="c2-msg"></span>
         </fieldset>
         <div class="field saved">
           <span>Saved searches</span>
@@ -182,6 +195,21 @@
               <option value="only">Only income-restricted</option>
             </select>
           </fieldset>
+          <fieldset class="field">
+            <legend>Daylight (estimate)</legend>
+            <select id="light" aria-label="Daylight estimate">
+              <option value="">Any</option>
+              <option value="some">Some light or better</option>
+              <option value="bright">Likely bright only</option>
+            </select>
+          </fieldset>
+          <fieldset class="field">
+            <legend>Superfund sites</legend>
+            <select id="superfund" aria-label="Apartments near Superfund sites">
+              <option value="">Show all</option>
+              <option value="exclude">Hide within 500 m of one</option>
+            </select>
+          </fieldset>
         <div class="field toggles">
         <label><input type="checkbox" id="delisted"> Include delisted</label>
         <label><input type="checkbox" id="unflagged"> Include unflagged</label>
@@ -219,6 +247,7 @@
           <span><i class="dot building"></i>City-list building</span>
           <span><i class="dot text"></i>Says so in listing</span>
           <span><i class="dot none"></i>Not flagged</span>
+          <span title="Federal toxic-waste cleanup sites (U.S. EPA)"><i class="swatch superfund"></i>Superfund site</span>
           <label class="legend-toggle"><input type="checkbox" id="show-hoods"> Neighborhood outlines</label>
         </div>
       </div>

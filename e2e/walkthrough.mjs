@@ -176,7 +176,22 @@ if (ONLY !== "live") {
   check("sorted by shortest commute", mins.length > 1 && mins.every((m, i) => i === 0 || m >= mins[i - 1]) && mins.every((m) => m <= 30),
     mins.slice(0, 6).join(", "));
   await page.selectOption("#c-minutes", "45");
-  check("raising the limit adds apartments", (await count(page)) > within30);
+  const within45 = await count(page);
+  check("raising the limit adds apartments", within45 > within30);
+  // a second place: both trips must fit
+  await page.click("#c2-add");
+  check("second place box opens", await page.isVisible("#c2-place"));
+  await page.fill("#c2-place", "Grand Central Terminal, Manhattan");
+  await page.selectOption("#c2-minutes", "30");
+  await page.click("#c2-set");
+  await page.waitForFunction(() => /And to/.test(document.querySelector("#c2-msg").textContent), null, { timeout: 15000 })
+    .catch(async () => check("second address lookup", false, await page.textContent("#c2-msg")));
+  const both = await count(page);
+  const twoTrips = (await page.textContent(".card .commute").catch(() => "")) || "";
+  check("two places: only apartments where both trips fit", both > 0 && both <= within45, `${both} of ${within45}`);
+  check("cards show both trips", /to 1 Center Street.*·.*min.* to /.test(twoTrips), twoTrips);
+  await page.click("#c2-remove");
+  check("removing the second place restores the list", (await count(page)) === within45 && (await page.isVisible("#c2-add")));
   await page.screenshot({ path: `${SHOTS}02b-commute-filter.png` });
   await page.click("#save-search");
   await page.fill("#save-name", "Commute test");
@@ -215,7 +230,12 @@ if (ONLY !== "live") {
   const detail = await page.textContent("#detail-body");
   check("detail shows nearest subway", /Nearest subway:/.test(detail));
   check("detail shows commute estimate", /Commute to .*min/.test(detail));
-  check("detail shows HPD building record", /Building record \(NYC HPD, PLUTO\)[\s\S]*Year built[\s\S]*Open violations[\s\S]*Registered owner/.test(detail));
+  check("detail shows building summary line", await page.locator("#detail-body details.bldg > summary").count() === 1
+    && !(await page.locator("#detail-body details.bldg").evaluate((d) => d.open)), await page.textContent("#detail-body details.bldg > summary"));
+  await page.click("#detail-body details.bldg > summary");
+  check("building details expand", await page.isVisible("#detail-body details.bldg dl.facts")
+    && /Open violations[\s\S]*Registered owner/.test(await page.textContent("#detail-body details.bldg")));
+  check("detail shows daylight estimate", /Daylight \(estimate\)[\s\S]*(bright|light|dim)/i.test(detail));
   check("detail has directions link", await page.locator("#detail-body button.link", { hasText: "Exact directions" }).count() === 1);
   await page.screenshot({ path: `${SHOTS}05-detail.png` });
   await page.keyboard.press("Escape");
@@ -408,6 +428,15 @@ if (ONLY !== "live") {
   const onlyIncome = await page.evaluate(() => ({ cards: document.querySelectorAll("#list .card").length, tags: document.querySelectorAll("#list .card .badge.income").length }));
   check("Only income-restricted shows tagged listings", onlyIncome.cards > 0 && onlyIncome.cards === onlyIncome.tags, JSON.stringify(onlyIncome));
   await page.selectOption("#income", "");
+  check("cards show a daylight tag", await page.locator("#list .card .badge.light").count() > 0);
+  await page.selectOption("#light", "bright");
+  const lit = await page.evaluate(() => [...document.querySelectorAll("#list .card")].map((c) => c.querySelector(".badge.light")?.textContent || ""));
+  check("Likely bright filter keeps only bright apartments", lit.length > 0 && lit.every((t) => /bright/.test(t)), [...new Set(lit)].join(","));
+  await page.selectOption("#light", "");
+  const sfAll = await page.evaluate(() => fetch("/dev-data.json").then((r) => r.json()).then((d) => d.listings.filter((l) => l.superfund && l.status === "ACTIVE").length));
+  await page.selectOption("#superfund", "exclude");
+  check("Superfund filter hides nearby apartments", sfAll > 0 && await page.locator("#list .card .badge.superfund").count() === 0, `${sfAll} near a site`);
+  await page.selectOption("#superfund", "");
   await page.selectOption("#grade", "B");
   const graded = await page.evaluate(() => [...document.querySelectorAll("#list .card")].map((c) => c.querySelector(".badge.grade")?.textContent));
   check("Building grade filter keeps only A and B", graded.length > 0 && graded.every((g) => g === "Grade A" || g === "Grade B"), [...new Set(graded)].join(","));

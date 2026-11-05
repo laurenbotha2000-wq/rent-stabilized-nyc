@@ -93,10 +93,25 @@ function badges(reasons, l) {
     b.title = "The listing says renters must meet income limits (e.g. an affordable-housing lottery unit).";
     box.append(b);
   }
+  if (l?.light) {
+    const b = el("span", { className: `badge light light-${l.light.level}`, textContent: LIGHT[l.light.level] });
+    b.title = `Daylight estimate: ${l.light.why}. ${LIGHT_HOW}`;
+    box.append(b);
+  }
+  if (l?.superfund) {
+    const b = el("span", { className: "badge superfund", textContent: "Near Superfund site" });
+    b.title = superfundText(l.superfund);
+    box.append(b);
+  }
   if (!reasons.length) box.append(el("span", { className: "badge plain", textContent: "Not flagged" }));
   for (const r of reasons) box.append(el("span", { className: `badge ${r}`, textContent: LABELS[r] || r }));
   return box;
 }
+const LIGHT = { bright: "☀ Likely bright", some: "◐ Some light", dim: "☁ Likely dim" };
+const LIGHT_HOW = "Estimated from the apartment's floor and the heights of the buildings around it (NYC building footprints), "
+  + "counting open sky to the south most. We don't know which way the windows face, so treat it as a rough guide.";
+const superfundText = (s) => `${s.m < 100 ? "Under 100" : `About ${Math.round(s.m / 50) * 50}`} m from the ${s.name} `
+  + "Superfund site, a federal toxic-waste cleanup (U.S. EPA).";
 function openExternal(url) {
   if (/^https:\/\//i.test(url)) window.open(url, "_blank", "noopener,noreferrer"); // listing data is untrusted
 }
@@ -121,6 +136,7 @@ function currentFilters() {
   const reasons = pressed("reasons"); if (reasons.length) f.reason = reasons;
   const features = pressed("feat-filter"); if (features.length) f.features = features;
   if (state.commuteTo) f.commute = { ...state.commuteTo };
+  if (state.commuteTo2) f.commute2 = { ...state.commuteTo2 };
   if ($("walk").value) f.walk = Number($("walk").value);
   const lines = pressed("lines"); if (lines.length) f.lines = lines;
   if ($("delisted").checked) f.delisted = true;
@@ -130,6 +146,8 @@ function currentFilters() {
   if ($("days").value) f.days = Number($("days").value);
   if ($("grade").value) f.grade = $("grade").value;
   if ($("income").value) f.income = $("income").value;
+  if ($("light").value) f.light = $("light").value;
+  if ($("superfund").value) f.superfund = $("superfund").value;
   return f;
 }
 
@@ -141,6 +159,7 @@ function applyFilters(f) {
   setPressed("lines", asList(f.lines));
   $("walk").value = f.walk ? String(f.walk) : "";
   setCommute(f.commute || null, { quiet: true });
+  setCommute2(f.commute2 || null, { quiet: true });
   $("min").value = f.min ?? "";
   $("max").value = f.max ?? "";
   $("delisted").checked = !!f.delisted;
@@ -150,6 +169,8 @@ function applyFilters(f) {
   $("days").value = f.days ? String(f.days) : "";
   $("grade").value = f.grade || "";
   $("income").value = f.income || "";
+  $("light").value = f.light || "";
+  $("superfund").value = f.superfund || "";
   renderChips();
   refresh({ fit: true });
 }
@@ -159,7 +180,7 @@ const SORTS = {
   newest: (a, b) => (b.first_seen || "").localeCompare(a.first_seen || ""),
   "price-asc": (a, b) => (a.price ?? Infinity) - (b.price ?? Infinity),
   "price-desc": (a, b) => (b.price ?? -Infinity) - (a.price ?? -Infinity),
-  commute: (a, b) => (a._c?.minutes ?? Infinity) - (b._c?.minutes ?? Infinity),
+  commute: (a, b) => longestCommute(a) - longestCommute(b), // with two places, the longer trip counts
   violations: (a, b) => {
     const x = gradeRank(a), y = gradeRank(b);
     return (x[0] - y[0]) || (x[1] - y[1]) || (a.price ?? Infinity) - (b.price ?? Infinity);
@@ -171,7 +192,7 @@ function refresh({ fit = false } = {}) {
   const personal = hasPrefs(state.prefs);
   $("matches-only-wrap").hidden = !personal;
   // how many filters are set inside the collapsed "More filters" panel
-  const more = ["reason", "features", "walk", "lines", "delisted", "unflagged", "noHazard", "prewar", "grade", "income"].filter((k) => f[k] !== undefined).length;
+  const more = ["reason", "features", "walk", "lines", "delisted", "unflagged", "noHazard", "prewar", "grade", "income", "light", "superfund"].filter((k) => f[k] !== undefined).length;
   $("more-count").hidden = !more;
   $("more-count").textContent = String(more);
   const set = Object.keys(f).length;
@@ -180,14 +201,16 @@ function refresh({ fit = false } = {}) {
   state.filtered = state.listings.filter((l) => {
     if (!matches(l, f)) return false;
     l._c = f.commute ? commuteFor(l, f.commute) : null;
+    l._c2 = f.commute2 ? commuteFor(l, f.commute2) : null;
     l._m = personal ? match(l, state.prefs) : null;
     if ($("hide-viewed").checked && viewed.has(l.url)) return false;
     return !(personal && $("matches-only").checked && !l._m.ok);
   });
-  $("sort-commute").hidden = !f.commute;
+  const anyCommute = Boolean(f.commute || f.commute2);
+  $("sort-commute").hidden = !anyCommute;
   let sort = $("sort").value;
-  if (sort === "match" && !personal) sort = f.commute ? "commute" : "newest";
-  if (sort === "commute" && !f.commute) sort = personal ? "match" : "newest";
+  if (sort === "match" && !personal) sort = anyCommute ? "commute" : "newest";
+  if (sort === "commute" && !anyCommute) sort = personal ? "match" : "newest";
   state.filtered.sort(SORTS[sort]);
   state.shown = PAGE;
   state.map?.setListings(state.filtered);
@@ -248,10 +271,9 @@ function card(l, onOpen) {
   if (st) meta.push(`${st.walk} min walk to ${st.name} (${st.routes.join(" ")})`);
   if (isPrewar(l)) meta.push(`Prewar (${l.hpd.year_built})`);
   if (l.hpd) meta.push(violationText(l.hpd.violations));
-  if (l._c) {
-    c.querySelector(".hood").before(el("div", { className: "commute",
-      textContent: `${describe(l._c).split(":")[0]} to ${placeName(state.commuteTo)}` }));
-  }
+  const trips = [[l._c, state.commuteTo], [l._c2, state.commuteTo2]].filter(([t, to]) => t && to)
+    .map(([t, to]) => `${describe(t).split(":")[0]} to ${placeName(to)}`);
+  if (trips.length) c.querySelector(".hood").before(el("div", { className: "commute", textContent: trips.join(" · ") }));
   if (l.status === "DELISTED") c.classList.add("gone");
   if (viewed.has(l.url)) { c.classList.add("viewed"); c.querySelector(".seen").hidden = false; }
   c.querySelector(".meta").textContent = meta.join(" · ");
@@ -275,30 +297,53 @@ function violationText(v) {
 
 const GRADE_SCALE = "Grades count open class B and C HPD violations per apartment: A under 0.25, B under 0.75, C under 1.5, D under 3, F at the city's Worst Landlord Watchlist level (3+, or 2+ in buildings with 35+ apartments). Many immediately hazardous (C) violations lower the grade.";
 
-/** Building record from NYC HPD and PLUTO (year built, violations, complaints, registered owner and agent). */
+/** Daylight estimate and nearby Superfund site, when known. */
+function surroundingsSection(l) {
+  if (!l.light && !l.superfund) return [];
+  return [
+    el("h3", { textContent: "Light and surroundings", style: "font-size:14px;margin:14px 0 6px" }),
+    el("dl", { className: "facts" },
+      ...(l.light ? [el("dt", { textContent: "Daylight (estimate)" }),
+        el("dd", {}, el("strong", { textContent: LIGHT[l.light.level] }), ` · ${l.light.why}.`,
+          el("details", { className: "how" }, el("summary", { textContent: "How this is estimated" }),
+            el("p", { className: "muted", textContent: LIGHT_HOW })))] : []),
+      ...(l.superfund ? [el("dt", { textContent: "Superfund site" }), el("dd", { textContent: superfundText(l.superfund) })] : [])),
+  ];
+}
+
+/** Building record from NYC HPD and PLUTO: a one-line summary, with the full record folded underneath. */
 function hpdSection(l) {
   const h = l.hpd;
   if (!h) return [];
-  const v = h.violations;
+  const v = h.violations, g = grade(l);
   const link = el("button", { type: "button", className: "link", textContent: "Full building history (Who Owns What)" });
   const bbl = l.geo_bbl || l.bbl;
   link.addEventListener("click", () => openExternal(`https://whoownswhat.justfix.org/en/bbl/${bbl}`));
+  const summary = el("summary", { className: "bldg-summary" },
+    ...(g ? [el("strong", { className: `grade-letter grade-${g.letter}`, textContent: g.letter })] : []),
+    el("span", {}, [
+      g ? `Grade ${g.letter}` : "Building",
+      v.total ? `${v.total} open violation${v.total > 1 ? "s" : ""}${v.C ? ` (${v.C} hazardous)` : ""}` : "no open violations",
+      h.year_built ? `built ${h.year_built}` : null,
+    ].filter(Boolean).join(" · ")));
+  summary.title = "Show the building's full record";
   return [
-    el("h3", { textContent: "Building record (NYC HPD, PLUTO)", style: "font-size:14px;margin:14px 0 6px" }),
-    el("dl", { className: "facts" },
-      el("dt", { textContent: "Year built" }),
-      el("dd", { textContent: h.year_built ? `${h.year_built}${isPrewar(l) ? " (prewar)" : ""}` : "—" }),
-      ...(grade(l) ? [el("dt", { textContent: "Building grade" }),
-        el("dd", {}, el("strong", { className: `grade-letter grade-${grade(l).letter}`, textContent: grade(l).letter }), ` · ${gradeWhy(grade(l))}. `,
-          el("span", { className: "muted", textContent: GRADE_SCALE }))] : []),
-      el("dt", { textContent: "Open violations" }),
-      el("dd", { textContent: v.total
-        ? `${v.total} · ${v.C} immediately hazardous (C), ${v.B} hazardous (B), ${v.A} non-hazardous (A)`
-        : "None open" }),
-      el("dt", { textContent: "Complaints, past year" }), el("dd", { textContent: String(h.complaints_12mo) }),
-      el("dt", { textContent: "Registered owner" }), el("dd", { textContent: h.owner || (h.registered ? "—" : "Not registered with HPD") }),
-      el("dt", { textContent: "Managing agent" }), el("dd", { textContent: h.agent || "—" })),
-    el("p", { className: "compare" }, `As of ${new Date(h.as_of).toLocaleDateString("en-US", { dateStyle: "medium" })}. `, link),
+    el("h3", { textContent: "Building", style: "font-size:14px;margin:14px 0 6px" }),
+    el("details", { className: "bldg" }, summary,
+      el("dl", { className: "facts" },
+        ...(g ? [el("dt", { textContent: "Why this grade" }), el("dd", { textContent: `${gradeWhy(g)}.` })] : []),
+        el("dt", { textContent: "Open violations" }),
+        el("dd", { textContent: v.total
+          ? `${v.C} immediately hazardous (C) · ${v.B} hazardous (B) · ${v.A} non-hazardous (A)`
+          : "None open" }),
+        el("dt", { textContent: "Complaints, past year" }), el("dd", { textContent: String(h.complaints_12mo) }),
+        el("dt", { textContent: "Year built" }),
+        el("dd", { textContent: h.year_built ? `${h.year_built}${isPrewar(l) ? " (prewar)" : ""}` : "—" }),
+        el("dt", { textContent: "Registered owner" }), el("dd", { textContent: h.owner || (h.registered ? "—" : "Not registered with HPD") }),
+        el("dt", { textContent: "Managing agent" }), el("dd", { textContent: h.agent || "—" })),
+      el("details", { className: "how" }, el("summary", { textContent: "How grades work" }),
+        el("p", { className: "muted", textContent: GRADE_SCALE })),
+      el("p", { className: "compare" }, `NYC HPD and PLUTO, as of ${new Date(h.as_of).toLocaleDateString("en-US", { dateStyle: "medium" })}. `, link)),
   ];
 }
 
@@ -357,6 +402,7 @@ function openDetail(url, focusMap = false, fromBuilding = null) {
     ...(m ? [el("p", { className: "compare", textContent: `${m.score}% match: ${m.why.join(" · ")}` })] : []),
     ...transit,
     ...hpdSection(l),
+    ...surroundingsSection(l),
     el("p", { className: "feature-list", textContent: feats.length ? `Mentioned in the listing: ${feats.join(", ")}` : "No amenities mentioned in the listing text." }),
     el("p", { className: "compare", textContent: compare }),
     el("h3", { textContent: "Price history", style: "font-size:14px;margin:14px 0 6px" }),
@@ -458,6 +504,7 @@ function filterSummary(f) {
   else if (f.max != null) parts.push(`up to ${money(f.max)}`);
   else if (f.min != null) parts.push(`from ${money(f.min)}`);
   if (f.commute) parts.push(`≤ ${f.commute.minutes} min to ${placeName(f.commute)}`);
+  if (f.commute2) parts.push(`${f.commute ? "and " : ""}≤ ${f.commute2.minutes} min to ${placeName(f.commute2)}`);
   if (f.lines?.length) parts.push(`near ${f.lines.join("/")}`);
   if (f.walk) parts.push(`≤ ${f.walk} min walk to subway`);
   if (f.features?.length) parts.push(f.features.map((x) => FEATURES[x]?.toLowerCase() || x).join(", "));
@@ -469,6 +516,8 @@ function filterSummary(f) {
   if (f.grade) parts.push(f.grade === "A" ? "grade A buildings" : `grade ${f.grade} or better`);
   if (f.income === "exclude") parts.push("no income limits");
   if (f.income === "only") parts.push("income-restricted only");
+  if (f.light) parts.push(f.light === "bright" ? "likely bright" : "some light or better");
+  if (f.superfund) parts.push("away from Superfund sites");
   return parts.join(" · ") || "All rent-stabilized listings";
 }
 
@@ -703,6 +752,50 @@ function setCommute(to, { quiet = false } = {}) {
   if (!quiet) refresh();
 }
 
+/** Minutes of the longer trip when two places are set (sorting); unknown last. */
+function longestCommute(l) {
+  const ts = [l._c, l._c2].filter(Boolean).map((t) => t.minutes);
+  return ts.length ? Math.max(...ts) : Infinity;
+}
+
+/** The optional second commute place: both trips must fit (e.g. two partners' jobs). */
+function setCommute2(to, { quiet = false } = {}) {
+  state.commuteTo2 = to ? { label: to.label, lat: to.lat, lng: to.lng, minutes: to.minutes } : null;
+  const show = Boolean(state.commuteTo2) || state.c2Open;
+  $("c2-row").hidden = !show;
+  $("c2-add").hidden = show;
+  if (state.commuteTo2) {
+    $("c2-place").value = state.commuteTo2.label;
+    $("c2-minutes").value = String(state.commuteTo2.minutes);
+    if (!state.sortTouched && !hasPrefs(state.prefs)) $("sort").value = "commute";
+  } else if (!show) $("c2-place").value = "";
+  const saved = findPlace(state.commuteTo2);
+  message("c2-msg", state.commuteTo2 ? `And to ${saved ? saved.alias : placeName(state.commuteTo2)}: only places where both trips fit` : "");
+  if (!quiet) refresh();
+}
+
+function wireSecondCommute() {
+  const set = (g) => setCommute2({ label: g.label.slice(0, 120), lat: g.lat, lng: g.lng, minutes: Number($("c2-minutes").value) });
+  attachSuggest($("c2-place"), set);
+  const find = async () => {
+    const q = $("c2-place").value.trim();
+    if (!q) return;
+    message("c2-msg", "Looking it up…");
+    try {
+      const g = await geocode(q);
+      if (!g) { message("c2-msg", "Couldn't find that address in NYC.", true); return; }
+      set(g);
+    } catch (e) { message("c2-msg", `Lookup failed: ${e.message}`, true); }
+  };
+  $("c2-add").addEventListener("click", () => { state.c2Open = true; setCommute2(null, { quiet: true }); $("c2-place").focus(); });
+  $("c2-set").addEventListener("click", find);
+  $("c2-place").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); find(); } });
+  $("c2-minutes").addEventListener("change", () => {
+    if (state.commuteTo2) setCommute2({ ...state.commuteTo2, minutes: Number($("c2-minutes").value) });
+  });
+  $("c2-remove").addEventListener("click", () => { state.c2Open = false; setCommute2(null); });
+}
+
 // ---- saved places (nicknamed addresses) -------------------------------------
 // In the account when signed in (users/{uid}/places), on this device otherwise;
 // a guest's places move into the account at sign-in.
@@ -714,7 +807,7 @@ const findPlace = (g) => g && state.places.find((p) => samePlace(p, g));
 
 function setPlaces(list) {
   state.places = list.map((p) => ({ ...p, label: niceAddress(p.label) })).sort((a, b) => a.alias.localeCompare(b.alias));
-  for (const id of ["c-place", "p-near", "np-address"]) $(id).dispatchEvent(new Event("places-changed"));
+  for (const id of ["c-place", "c2-place", "p-near", "np-address"]) $(id).dispatchEvent(new Event("places-changed"));
   showSavePlace();
   $("places-count").hidden = !state.places.length;
   $("places-count").textContent = String(state.places.length);
@@ -1474,8 +1567,9 @@ function wireUi() {
   }
   let t;
   for (const id of ["min", "max"]) $(id).addEventListener("input", () => { clearTimeout(t); t = setTimeout(refresh, 200); });
-  for (const id of ["delisted", "unflagged", "no-hazard", "prewar", "walk", "grade", "income"]) $(id).addEventListener("change", refresh);
+  for (const id of ["delisted", "unflagged", "no-hazard", "prewar", "walk", "grade", "income", "light", "superfund"]) $(id).addEventListener("change", refresh);
   wireCommuteFilter();
+  wireSecondCommute();
   $("more").addEventListener("click", () => { state.shown += PAGE; renderList(); });
 
   $("saved").addEventListener("change", () => {
