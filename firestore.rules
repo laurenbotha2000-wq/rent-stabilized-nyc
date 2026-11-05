@@ -137,7 +137,7 @@ service cloud.firestore {
     }
 
     match /meta/{doc} {
-      allow get: if doc == 'status';
+      allow get: if doc in ['status', 'heartbeat']; // heartbeat: when the sync last checked the city data
     }
 
     // Change log written by the sync job: new, price_change, delisted, relisted

@@ -469,10 +469,17 @@ function setData(listings, meta) {
   if (state.pendingAnnounce?.length) announce(); // changes whose listings just arrived
 }
 
+setInterval(() => { if (state.meta) renderStatus(); }, 30_000); // keep "… min ago" current
+
 function renderStatus() {
   const m = state.meta || {};
   const active = state.listings.filter((l) => l.status === "ACTIVE").length;
-  $("status").textContent = `${active.toLocaleString()} active listings · updated ${ago(m.updated_at)}`;
+  // "checked" = the sync last looked for new listings (every minute); "changed" = listings last changed
+  const checked = state.checkedAt && (!m.updated_at || state.checkedAt > m.updated_at) ? state.checkedAt : null;
+  $("status").textContent = checked
+    ? `${active.toLocaleString()} active listings · checked ${ago(checked)} · last change ${ago(m.updated_at)}`
+    : `${active.toLocaleString()} active listings · updated ${ago(m.updated_at)}`;
+  $("status").title = "Stoopify checks for new and changed listings about every minute.";
 }
 
 // ---- saved searches -------------------------------------------------------
@@ -1463,6 +1470,12 @@ function listenListings() {
     const listings = chunks.flatMap((c) => (c.exists() && c.data().version === meta.version ? JSON.parse(c.data().json) : []));
     setData(listings, meta);
   }, (err) => { $("status").textContent = `Couldn't load listings: ${err.code || err.message}`; }));
+  // when the sync last checked, even if nothing changed (optional: older rules may not allow it)
+  state.dataUnsub.push(fs.onSnapshot(fs.doc(db, "meta", "heartbeat"), (snap) => {
+    const t = snap.data()?.checked_at;
+    state.checkedAt = t?.toDate ? t.toDate().toISOString() : null;
+    renderStatus();
+  }, () => {}));
 }
 
 function listenSearches() {
