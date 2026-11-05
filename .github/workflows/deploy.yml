@@ -72,6 +72,9 @@ jobs:
       - uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+      - name: Show which service account publishes
+        # the account's email only (not the key), so permission errors can be fixed on the right account
+        run: echo "Publishing as $(jq -r .client_email "$GOOGLE_APPLICATION_CREDENTIALS")"
       - name: Build and publish
         run: |
           npm ci --prefix scripts --no-audit --no-fund
