@@ -1,0 +1,12 @@
+{
+  "name": "rent-stabilized-nyc",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "poll": "node src/poll-streeteasy.js"
+  },
+  "dependencies": {
+    "pg": "^8.11.3",
+    "streeteasy-api": "^1.0.0"
+  }
+}
