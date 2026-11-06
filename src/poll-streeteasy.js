@@ -1,9 +1,9 @@
 import { StreetEasyClient, Areas } from 'streeteasy-api';
-import pg from 'pg';
+import { Firestore } from '@google-cloud/firestore';
 
-const pool = new pg.Pool({
-  connectionString: process.env.DATABASE_URL,
-});
+// Initialize Firestore client
+const db = new Firestore();
+const listingsCollection = db.collection('listings');
 
 const client = new StreetEasyClient();
 
@@ -42,52 +42,44 @@ async function pollAreaListings(area) {
       }
 
       for (const listing of listings) {
-        // Extract array of photo URLs if present on the node payload
+        const docId = String(listing.id || listing.streeteasyId);
+        const docRef = listingsCollection.doc(docId);
+
+        // Extract photo URLs array if present
         const photoUrls = 
           listing.photos?.map(p => typeof p === 'string' ? p : p.url) || 
           listing.images?.map(img => typeof img === 'string' ? img : img.url) || 
           (listing.primaryImage ? [listing.primaryImage.url || listing.primaryImage] : []);
 
-        const query = `
-          INSERT INTO listings (
-            streeteasy_id, 
-            address, 
-            unit, 
-            price, 
-            bedroom_count, 
-            bathroom_count, 
-            area_name, 
-            photos,
-            raw_data, 
-            created_at, 
-            updated_at
-          )
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
-          ON CONFLICT (streeteasy_id) 
-          DO UPDATE SET
-            price = EXCLUDED.price,
-            photos = EXCLUDED.photos,
-            raw_data = EXCLUDED.raw_data,
-            updated_at = NOW()
-          RETURNING streeteasy_id, address;
-        `;
+        const docSnapshot = await docRef.get();
 
-        const values = [
-          listing.id,
-          listing.street,
-          listing.unit || null,
-          listing.price,
-          listing.bedroomCount,
-          listing.fullBathroomCount,
-          listing.areaName,
-          photoUrls, // Saved directly as PostgreSQL TEXT[] array
-          JSON.stringify(listing),
-        ];
+        const listingData = {
+          streeteasy_id: docId,
+          address: listing.street || '',
+          unit: listing.unit || null,
+          price: listing.price || 0,
+          bedroom_count: listing.bedroomCount || 0,
+          bathroom_count: listing.fullBathroomCount || 0,
+          area_name: listing.areaName || '',
+          photos: photoUrls,
+          raw_data: listing,
+          updated_at: new Date().toISOString(),
+        };
 
-        const res = await pool.query(query, values);
-        if (res.rowCount > 0) {
+        if (!docSnapshot.exists) {
+          // Document is unseen: insert new Firestore record
+          listingData.created_at = new Date().toISOString();
+          await docRef.set(listingData);
           areaNewListings++;
-          console.log(`NEW LISTING: ${res.rows[0].streeteasy_id} - ${res.rows[0].address}`);
+          console.log(`NEW UNSEEN LISTING ADDED TO FIRESTORE: ${docId} - ${listingData.address}`);
+        } else {
+          // Document exists: update existing fields
+          await docRef.update({
+            price: listingData.price,
+            photos: listingData.photos,
+            raw_data: listingData.raw_data,
+            updated_at: listingData.updated_at,
+          });
         }
       }
 
