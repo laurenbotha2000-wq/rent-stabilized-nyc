@@ -6,7 +6,7 @@
     "poll": "node src/poll-streeteasy.js"
   },
   "dependencies": {
-    "pg": "^8.11.3",
+    "@google-cloud/firestore": "^7.0.0",
     "streeteasy-api": "^1.0.0"
   }
 }
