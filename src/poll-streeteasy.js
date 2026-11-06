@@ -19,6 +19,28 @@ const ALL_AREAS = [
   Areas.STATEN_ISLAND,
 ];
 
+/**
+ * Safely extracts photo URL strings regardless of how the API formats images/photos.
+ */
+function extractPhotoUrls(listing) {
+  // Grab array candidate or wrap single object/string in array
+  const rawPhotos = 
+    listing.photos || 
+    listing.images || 
+    (listing.primaryImage ? [listing.primaryImage] : []);
+
+  if (!Array.isArray(rawPhotos)) return [];
+
+  return rawPhotos
+    .map(p => {
+      if (!p) return null;
+      if (typeof p === 'string') return p;
+      // Handle object shapes like { url }, { fullUrl }, { src }, { largeUrl }, etc.
+      return p.url || p.fullUrl || p.src || p.largeUrl || p.mediumUrl || null;
+    })
+    .filter(url => typeof url === 'string' && url.trim().length > 0);
+}
+
 async function pollAreaListings(area) {
   let page = 1;
   let hasMore = true;
@@ -45,22 +67,18 @@ async function pollAreaListings(area) {
         const docId = String(listing.id || listing.streeteasyId);
         const docRef = listingsCollection.doc(docId);
 
-        // Extract photo URLs array if present
-        const photoUrls = 
-          listing.photos?.map(p => typeof p === 'string' ? p : p.url) || 
-          listing.images?.map(img => typeof img === 'string' ? img : img.url) || 
-          (listing.primaryImage ? [listing.primaryImage.url || listing.primaryImage] : []);
+        const photoUrls = extractPhotoUrls(listing);
 
         const docSnapshot = await docRef.get();
 
         const listingData = {
           streeteasy_id: docId,
-          address: listing.street || '',
+          address: listing.street || listing.address || '',
           unit: listing.unit || null,
           price: listing.price || 0,
-          bedroom_count: listing.bedroomCount || 0,
-          bathroom_count: listing.fullBathroomCount || 0,
-          area_name: listing.areaName || '',
+          bedroom_count: listing.bedroomCount || listing.bedrooms || 0,
+          bathroom_count: listing.fullBathroomCount || listing.bathrooms || 0,
+          area_name: listing.areaName || listing.area || '',
           photos: photoUrls,
           raw_data: listing,
           updated_at: new Date().toISOString(),
