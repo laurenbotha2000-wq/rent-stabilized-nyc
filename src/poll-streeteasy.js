@@ -20,10 +20,11 @@ const ALL_AREAS = [
 ];
 
 /**
- * Safely extracts photo URL strings regardless of how the API formats images/photos.
+ * Safely extracts photo URL strings from StreetEasy GraphQL listing responses.
+ * StreetEasy returns photo objects with S3 keys like `{ key: "..." }`.
  */
 function extractPhotoUrls(listing) {
-  // Grab array candidate or wrap single object/string in array
+  // Grab photo candidates (photos array, images array, or primaryImage fallback)
   const rawPhotos = 
     listing.photos || 
     listing.images || 
@@ -35,7 +36,9 @@ function extractPhotoUrls(listing) {
     .map(p => {
       if (!p) return null;
       if (typeof p === 'string') return p;
-      // Handle object shapes like { url }, { fullUrl }, { src }, { largeUrl }, etc.
+      // Convert StreetEasy photo key objects { key: "123456" } into CDN image URLs
+      if (p.key) return `https://images.streeteasy.com/photos/${p.key}`;
+      // Fallback for standard URL object properties
       return p.url || p.fullUrl || p.src || p.largeUrl || p.mediumUrl || null;
     })
     .filter(url => typeof url === 'string' && url.trim().length > 0);
